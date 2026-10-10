@@ -12,14 +12,28 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 
 /**
- * Accepts either a bare region ("us-east-1", optionally with a pasted path)
- * or a full endpoint/base URL, and returns a full /chat/completions URL.
+ * Accepts either a bare region ("us-east-1") or a full endpoint/base URL.
+ * A pasted URL is used as-is (only the missing tail is completed) — no
+ * region detection, no host rewriting.
  */
 export function resolveBedrockEndpoint(raw: string): string {
   const v = (raw || "").trim().replace(/\/+$/, "");
   if (!v) return "";
   if (/^https?:\/\//i.test(v)) {
-    return /\/chat\/completions$/i.test(v) ? v : `${v}/chat/completions`;
+    if (/\/chat\/completions$/i.test(v)) return v;
+    let base = v;
+    try {
+      const u = new URL(v);
+      if (u.pathname === "/" || u.pathname === "") {
+        // Root base: complete with the versioned path per host family.
+        base = /bedrock-runtime\./i.test(u.hostname)
+          ? `${v}/openai/v1`
+          : `${v}/v1`;
+      }
+    } catch {
+      // Not parseable: fall through and append below.
+    }
+    return `${base}/chat/completions`;
   }
   const region = v.split("/")[0].trim();
   if (!region) return "";
