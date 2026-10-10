@@ -295,7 +295,7 @@ export const Providers = ({
                 }.`}
               />
               <TextInput
-                placeholder={`Enter fast model name (e.g. gpt-4o-mini)`}
+                placeholder={`Enter model ID`}
                 value={selectedAIProvider?.variables?.model || ""}
                 onChange={(value) => {
                   setModel(typeof value === "string" ? value : "");
