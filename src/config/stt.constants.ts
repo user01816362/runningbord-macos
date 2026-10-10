@@ -1,5 +1,18 @@
 export const SPEECH_TO_TEXT_PROVIDERS = [
   {
+    id: "bedrock-stt",
+    name: "AWS Bedrock (Voxtral)",
+    curl: `curl -X POST "https://bedrock-runtime.{{REGION}}.amazonaws.com/model/{{MODEL}}/converse" \\
+      -H "Authorization: Bearer {{API_KEY}}" \\
+      -H "Content-Type: application/json" \\
+      -d '{
+        "messages": [{"role": "user", "content": [{"audio": {"format": "wav", "source": {"bytes": "{{AUDIO}}"}}}, {"text": "Transcribe this audio verbatim. Output only the transcript."}]}],
+        "inferenceConfig": {"maxTokens": 2000, "temperature": 0}
+      }'`,
+    responseContentPath: "output.message.content[0].text",
+    streaming: false,
+  },
+  {
     id: "openai-whisper",
     name: "OpenAI Whisper",
     curl: `curl -X POST "https://api.openai.com/v1/audio/transcriptions" \\

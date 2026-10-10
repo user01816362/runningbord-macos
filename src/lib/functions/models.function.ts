@@ -258,6 +258,18 @@ const SOURCES: Record<string, ModelListSource> = {
       return extractIds(json);
     },
   },
+  // Bedrock has no transcriptions-style endpoint; Voxtral speech-to-text
+  // models transcribe via Converse audio blocks. List via mantle, filter.
+  "stt:bedrock-stt": {
+    ready: (vars) => needsKey(vars) && !!vars.region?.trim(),
+    fetch: async ({ vars }) => {
+      const endpoint = resolveBedrockEndpoint(vars.region || "");
+      if (!endpoint) throw new Error("Enter a region (e.g. us-east-1) or Bedrock URL first.");
+      const ids = await fetchBedrockModels(endpoint, vars.api_key);
+      const voxtral = ids.filter((id) => /voxtral/i.test(id));
+      return voxtral.length > 0 ? voxtral : ids;
+    },
+  },
 };
 
 /** False for custom providers (no known list route) — UI stays manual entry. */
