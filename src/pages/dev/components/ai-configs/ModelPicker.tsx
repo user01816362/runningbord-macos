@@ -55,7 +55,9 @@ export const ModelPicker = ({
   const [open, setOpen] = useState(false);
   const [customMode, setCustomMode] = useState(false);
   const [customValue, setCustomValue] = useState("");
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const fetchingRef = useRef("");
+  const requestIdRef = useRef(0);
 
   const supported = canListProviderModels(providerId);
   const ready = supported && isProviderListReady(providerId, variables || {});
@@ -70,6 +72,7 @@ export const ModelPicker = ({
       }
       if (fetchingRef.current === key) return;
       fetchingRef.current = key;
+      const requestId = ++requestIdRef.current;
       setLoading(true);
       setError(null);
       try {
@@ -77,12 +80,15 @@ export const ModelPicker = ({
           vars: variables || {},
           curl,
         });
+        if (requestIdRef.current !== requestId) return; // stale: creds changed mid-flight
         cache.set(key, ids);
         setModels(ids);
+        setUpdatedAt(Date.now());
       } catch (e) {
+        if (requestIdRef.current !== requestId) return;
         setError(e instanceof Error ? e.message : "Failed to fetch models");
       } finally {
-        setLoading(false);
+        if (requestIdRef.current === requestId) setLoading(false);
         fetchingRef.current = "";
       }
     },
@@ -112,7 +118,12 @@ export const ModelPicker = ({
       <div className="flex gap-2">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
-            <Button variant="outline" className="flex-1 justify-between h-11 font-normal">
+            <Button
+              variant="outline"
+              role="combobox"
+              aria-expanded={open}
+              className="flex-1 justify-between h-11 font-normal"
+            >
               <span className="truncate">{value || "Choose a model..."}</span>
               <ChevronsUpDown className="h-4 w-4 shrink-0 opacity-50" />
             </Button>
@@ -142,6 +153,7 @@ export const ModelPicker = ({
                   ))}
                   <CommandItem
                     value="__custom_model__"
+                    forceMount
                     onSelect={() => setCustomMode(true)}
                     className="cursor-pointer"
                   >
@@ -149,6 +161,15 @@ export const ModelPicker = ({
                     <span className="text-sm text-muted-foreground">Custom model…</span>
                   </CommandItem>
                 </CommandGroup>
+                {updatedAt ? (
+                  <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t">
+                    Updated{" "}
+                    {new Date(updatedAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </div>
+                ) : null}
               </CommandList>
             </Command>
           </PopoverContent>
