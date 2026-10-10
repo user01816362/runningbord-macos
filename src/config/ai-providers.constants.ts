@@ -184,6 +184,19 @@ export const AI_PROVIDERS = [
     streaming: true,
   },
   {
+    id: "bedrock",
+    curl: `curl https://bedrock-mantle.{{REGION}}.api.aws/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer {{API_KEY}}" \
+  -d '{
+    "model": "{{MODEL}}",
+    "messages": [{"role": "system", "content": "{{SYSTEM_PROMPT}}"}, {"role": "user", "content": [{"type": "text", "text": "{{TEXT}}"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,{{IMAGE}}"}}]}],
+    "stream": true
+  }'`,
+    responseContentPath: "choices[0].message.content",
+    streaming: true,
+  },
+  {
     id: "ollama",
     curl: `curl -X POST http://localhost:11434/v1/chat/completions \\
     -H "Authorization: Bearer {{API_KEY}}" \\
