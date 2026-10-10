@@ -125,7 +125,7 @@ export const useSettings = () => {
         setVariables(variables);
       }
     }
-  }, [selectedAIProvider.provider]);
+  }, [selectedAIProvider.provider, allAiProviders]);
 
   useEffect(() => {
     if (selectedSttProvider.provider) {

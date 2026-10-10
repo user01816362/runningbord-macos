@@ -1,4 +1,6 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
+import { ModelPicker } from "../ai-configs/ModelPicker";
+import { canListProviderModels } from "@/lib/functions/models.function";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
@@ -174,7 +176,9 @@ export const Providers = ({
       <div className="space-y-4 mt-2">
         {sttVariables
           ?.filter(
-            (variable) => variable?.key !== findKeyAndValue("api_key")?.key
+            (variable) =>
+              variable?.key !== findKeyAndValue("api_key")?.key &&
+              variable?.key !== "model"
           )
           .map((variable) => {
             const getVariableValue = () => {
@@ -221,6 +225,45 @@ export const Providers = ({
               </div>
             );
           })}
+        {(() => {
+          const modelVar = (sttVariables || []).find((v) => v?.key === "model");
+          if (!modelVar || !selectedSttProvider?.provider) return null;
+          const sttId = `stt:${selectedSttProvider.provider}`;
+          const provider = allSttProviders?.find((p) => p?.id === selectedSttProvider?.provider);
+          const setModel = (id: string) => {
+            if (!selectedSttProvider) return;
+            onSetSelectedSttProvider({
+              ...selectedSttProvider,
+              variables: { ...selectedSttProvider.variables, model: id },
+            });
+          };
+          if (canListProviderModels(sttId)) {
+            const apiKeyVar = findKeyAndValue("api_key");
+            return (
+              <ModelPicker
+                providerId={sttId}
+                providerLabel={provider?.isCustom ? "Custom Provider" : selectedSttProvider.provider}
+                apiKey={apiKeyVar && selectedSttProvider.variables ? selectedSttProvider.variables[apiKeyVar.key] || "" : ""}
+                curl={provider?.curl || ""}
+                variables={selectedSttProvider?.variables || {}}
+                value={selectedSttProvider?.variables?.model || ""}
+                title="STT Model *"
+                slot={sttId}
+                onSelect={setModel}
+              />
+            );
+          }
+          return (
+            <div className="space-y-1">
+              <Header title="STT Model *" description="Enter the transcription model ID." />
+              <TextInput
+                placeholder="Enter model ID"
+                value={selectedSttProvider?.variables?.model || ""}
+                onChange={(value) => setModel(typeof value === "string" ? value : "")}
+              />
+            </div>
+          );
+        })()}
       </div>
     </div>
   );

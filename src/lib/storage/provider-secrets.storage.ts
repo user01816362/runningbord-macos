@@ -24,19 +24,25 @@ export const isSecretVariable = (name: string) => SECRET_NAME.test(name);
 const secretId = (kind: "ai" | "stt", provider: string, variable: string) =>
   `${kind}:${provider}:${variable}`;
 
-async function saveSecrets(kind: "ai" | "stt", selection: ProviderSelection): Promise<string[]> {
+async function saveSecrets(kind: "ai" | "stt", selection: ProviderSelection): Promise<{ names: string[]; failed: boolean }> {
   const names: string[] = [];
+  let failed = false;
   for (const [name, value] of Object.entries(selection.variables)) {
     if (!isSecretVariable(name)) continue;
     const key = secretId(kind, selection.provider, name);
-    if (value) {
-      await invoke("secret_set", { key, value });
-      names.push(name);
-    } else {
-      await invoke("secret_delete", { key });
+    try {
+      if (value) {
+        await invoke("secret_set", { key, value });
+        names.push(name);
+      } else {
+        await invoke("secret_delete", { key });
+      }
+    } catch (error) {
+      console.warn(`Couldn't save ${name} to the system keychain:`, error);
+      failed = true;
     }
   }
-  return names;
+  return { names, failed };
 }
 
 /** Store a selection. Never fails hard on credential-store errors: secrets
@@ -50,7 +56,9 @@ export async function persistProviderSelection(
   let secretVariables: string[] = [];
   let keychainFailed = false;
   try {
-    secretVariables = await saveSecrets(kind, selection);
+    const saved = await saveSecrets(kind, selection);
+    secretVariables = saved.names;
+    keychainFailed = saved.failed;
   } catch (error) {
     // Keychain denied/unavailable: session keeps working from memory.
     console.warn("Couldn't save API keys to the system keychain:", error);

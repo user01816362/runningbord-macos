@@ -13,7 +13,13 @@ import {
   CommandItem,
   CommandList,
 } from "@/components";
-import { Check, ChevronsUpDown, Loader2, Pencil, RefreshCw } from "lucide-react";
+import { Check, ChevronsUpDown, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import {
+  addCustomModel,
+  getCustomModels,
+  removeCustomModel,
+  renameCustomModel,
+} from "@/lib/storage";
 import {
   canListProviderModels,
   hasPublicCatalog,
@@ -25,13 +31,14 @@ import {
 const cache = new Map<string, string[]>();
 
 function cacheKey(providerId: string, vars: Record<string, string>, curl: string): string {
-  return [providerId, vars.api_key || "", vars.region || "", providerId === "ollama" ? curl : ""].join("|");
+  return [providerId, vars.api_key || "", vars.region || "", curl].join("|");
 }
 
 /**
  * Global model field: searchable dropdown fed by each provider's official
- * list-models API. Auto-fetches when credentials are present, refresh icon
- * re-fetches, current selection stays visible, last item opens manual entry.
+ * list-models API (keyless public catalog when no key). Auto-fetches when
+ * ready, refresh icon re-fetches, current selection stays visible, saved
+ * custom IDs are editable + deletable, last item adds a new custom ID.
  */
 export const ModelPicker = ({
   providerId,
@@ -43,6 +50,7 @@ export const ModelPicker = ({
   onSelect,
   title,
   description,
+  slot,
 }: {
   providerId: string;
   providerLabel: string;
@@ -53,17 +61,24 @@ export const ModelPicker = ({
   onSelect: (modelId: string) => void;
   title?: string;
   description?: string;
+  /** Custom-model storage slot (defaults to providerId; Slow uses its own). */
+  slot?: string;
 }) => {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [official, setOfficial] = useState(true);
   const [customMode, setCustomMode] = useState(false);
   const [customValue, setCustomValue] = useState("");
+  const [customs, setCustoms] = useState<string[]>([]);
+  const [editingCustom, setEditingCustom] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
   const fetchingRef = useRef("");
   const requestIdRef = useRef(0);
 
+  const store = slot || providerId;
   const supported = canListProviderModels(providerId);
   const keyReady = supported && isProviderListReady(providerId, variables || {});
   // Keyless path: public catalog (exact account list once the key is in).
@@ -71,25 +86,27 @@ export const ModelPicker = ({
 
   const doFetch = useCallback(
     async (force: boolean) => {
-      if (!supported || !isProviderListReady(providerId, variables || {})) return;
+      if (!supported || !(keyReady || hasPublicCatalog(providerId))) return;
       const key = cacheKey(providerId, variables || {}, curl);
       if (!force && cache.has(key)) {
         setModels(cache.get(key) || []);
         return;
       }
-      if (fetchingRef.current === key) return;
+      if (fetchingRef.current === key && !force) return;
       fetchingRef.current = key;
       const requestId = ++requestIdRef.current;
       setLoading(true);
       setError(null);
       try {
-        const ids = await listProviderModels(providerId, {
+        const result = await listProviderModels(providerId, {
           vars: variables || {},
           curl,
+          force,
         });
         if (requestIdRef.current !== requestId) return; // stale: creds changed mid-flight
-        cache.set(key, ids);
-        setModels(ids);
+        cache.set(key, result.ids);
+        setModels(result.ids);
+        setOfficial(result.official);
         setUpdatedAt(Date.now());
       } catch (e) {
         if (requestIdRef.current !== requestId) return;
@@ -102,7 +119,7 @@ export const ModelPicker = ({
     [providerId, variables, curl, supported]
   );
 
-  // Auto-fetch when provider/credentials become ready; manual refresh via icon.
+  // Auto-fetch when ready (settings open counts as mount); manual refresh via icon.
   useEffect(() => {
     if (canFetch) void doFetch(false);
     else {
@@ -112,6 +129,10 @@ export const ModelPicker = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerId, apiKey, (variables || {}).region, curl]);
 
+  useEffect(() => {
+    setCustoms(getCustomModels(store));
+  }, [store, open]);
+
   if (!supported) return null;
 
   const visible = value && !models.includes(value) ? [value, ...models] : models;
@@ -120,6 +141,19 @@ export const ModelPicker = ({
     setOpen(next);
     // Fetch on open when we have nothing to show (cache makes repeats cheap).
     if (next && canFetch && !loading && models.length === 0) void doFetch(false);
+    if (next) setCustoms(getCustomModels(store));
+  };
+
+  const applyCustom = (id: string) => {
+    const clean = id.trim();
+    if (!clean) return;
+    addCustomModel(store, clean);
+    setCustoms(getCustomModels(store));
+    onSelect(clean);
+    setCustomMode(false);
+    setCustomValue("");
+    setEditingCustom(null);
+    setOpen(false);
   };
 
   return (
@@ -128,7 +162,9 @@ export const ModelPicker = ({
         title={title || "Model *"}
         description={
           description ||
-          `Required — models from your ${providerLabel} account, fetched automatically. Last item lets you type a custom ID.`
+          (keyReady
+            ? `Required — models from your ${providerLabel} account, fetched automatically.`
+            : "Required — public model list (add API key for your exact account models).")
         }
       />
       <div className="flex gap-2">
@@ -167,10 +203,62 @@ export const ModelPicker = ({
                       <span className="font-medium text-sm break-all">{id}</span>
                     </CommandItem>
                   ))}
+                </CommandGroup>
+                {customs.length > 0 ? (
+                  <CommandGroup heading="Custom">
+                    {customs.map((id) => (
+                      <CommandItem
+                        key={`custom:${id}`}
+                        value={id}
+                        onSelect={() => {
+                          onSelect(id);
+                          setCustomMode(false);
+                          setOpen(false);
+                        }}
+                        className="cursor-pointer"
+                      >
+                        <Check
+                          className={`h-4 w-4 shrink-0 ${value === id ? "opacity-100" : "opacity-0"}`}
+                        />
+                        <span className="font-medium text-sm break-all flex-1">{id}</span>
+                        <span
+                          role="button"
+                          title="Edit"
+                          className="p-1 opacity-60 hover:opacity-100"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCustom(id);
+                            setEditValue(id);
+                            setCustomMode(false);
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </span>
+                        <span
+                          role="button"
+                          title="Delete"
+                          className="p-1 opacity-60 hover:opacity-100 hover:text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeCustomModel(store, id);
+                            setCustoms(getCustomModels(store));
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </span>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                ) : null}
+                <CommandGroup>
                   <CommandItem
                     value="__custom_model__"
                     forceMount
-                    onSelect={() => setCustomMode(true)}
+                    onSelect={() => {
+                      setEditingCustom(null);
+                      setCustomValue("");
+                      setCustomMode(true);
+                    }}
                     className="cursor-pointer"
                   >
                     <Pencil className="h-4 w-4 shrink-0 opacity-60" />
@@ -179,7 +267,7 @@ export const ModelPicker = ({
                 </CommandGroup>
                 {updatedAt ? (
                   <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t">
-                    Updated{" "}
+                    {official ? "Your account" : "Public list"} · Updated{" "}
                     {new Date(updatedAt).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -196,7 +284,7 @@ export const ModelPicker = ({
           size="icon"
           variant="outline"
           className="shrink-0 h-11 w-11"
-          title={keyReady ? "Refresh model list" : "Public list — add API key for your exact account models"}
+          title={keyReady ? "Refresh model list" : "Refresh public list (add key for account list)"}
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -205,24 +293,33 @@ export const ModelPicker = ({
           )}
         </Button>
       </div>
-      {customMode ? (
+      {customMode || editingCustom ? (
         <div className="flex gap-2">
           <TextInput
             placeholder="Type custom model ID"
-            value={customValue}
-            onChange={(v: string) => setCustomValue(v)}
+            value={editingCustom ? editValue : customValue}
+            onChange={(v: string) => {
+              if (editingCustom) setEditValue(v);
+              else setCustomValue(v);
+            }}
           />
           <Button
             className="shrink-0 h-11"
-            disabled={!customValue.trim()}
+            disabled={!(editingCustom ? editValue.trim() : customValue.trim())}
             onClick={() => {
-              onSelect(customValue.trim());
-              setCustomMode(false);
-              setCustomValue("");
-              setOpen(false);
+              if (editingCustom) {
+                renameCustomModel(store, editingCustom, editValue);
+                setCustoms(getCustomModels(store));
+                onSelect(editValue.trim());
+                setEditingCustom(null);
+                setEditValue("");
+                setOpen(false);
+              } else {
+                applyCustom(customValue);
+              }
             }}
           >
-            Use
+            {editingCustom ? "Save" : "Use"}
           </Button>
         </div>
       ) : null}

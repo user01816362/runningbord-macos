@@ -12,6 +12,8 @@ export interface ModelListContext {
   vars: Record<string, string>;
   /** Raw curl template of the provider (used to derive hosts, e.g. Ollama) */
   curl: string;
+  /** Bypass caches (refresh icon). */
+  force?: boolean;
 }
 
 export interface ModelListSource {
@@ -210,6 +212,54 @@ const SOURCES: Record<string, ModelListSource> = {
       return fetchBedrockModels(endpoint, vars.api_key);
     },
   },
+  // Same catalog + chat filter as gemini (multimodal chat variant).
+  "gemini-multimodal": {
+    ready: needsKey,
+    fetch: async (ctx) => SOURCES.gemini.fetch(ctx),
+  },
+
+  // ---- Speech-to-text providers (same picker, STT list routes) ----
+  "stt:openai-whisper": {
+    ready: needsKey,
+    fetch: async ({ vars }) => {
+      const json = await getJson("https://api.openai.com/v1/models", {
+        Authorization: `Bearer ${vars.api_key}`,
+      });
+      const ids = extractIds(json).filter((id) => /whisper|transcribe/i.test(id));
+      return ids.length > 0 ? ids : ["whisper-1"];
+    },
+  },
+  "stt:groq": {
+    ready: needsKey,
+    fetch: async ({ vars }) => {
+      const json = await getJson("https://api.groq.com/openai/v1/models", {
+        Authorization: `Bearer ${vars.api_key}`,
+      });
+      const ids = extractIds(json).filter((id) => /whisper/i.test(id));
+      if (ids.length === 0) throw new Error("No Whisper models on this Groq key.");
+      return ids;
+    },
+  },
+  "stt:elevenlabs-stt": {
+    ready: needsKey,
+    fetch: async ({ vars }) => {
+      const json = await getJson("https://api.elevenlabs.io/v1/models", {
+        "xi-api-key": vars.api_key,
+      });
+      const ids = extractIds(json);
+      const stt = ids.filter((id) => /scribe|transcribe|speech-to-text/i.test(id));
+      return stt.length > 0 ? stt : ids;
+    },
+  },
+  "stt:deepgram-stt": {
+    ready: needsKey,
+    fetch: async ({ vars }) => {
+      const json = await getJson("https://api.deepgram.com/v1/models", {
+        Authorization: `Token ${vars.api_key}`,
+      });
+      return extractIds(json);
+    },
+  },
 };
 
 /** False for custom providers (no known list route) — UI stays manual entry. */
@@ -223,6 +273,7 @@ export function canListProviderModels(providerId: string): boolean {
  * native style (owner stripped, except where the provider keeps it).
  */
 const PUBLIC_PREFIXES: Record<string, { prefixes: string[]; stripOwner: boolean }> = {
+  "gemini-multimodal": { prefixes: ["google/"], stripOwner: true },
   openai: { prefixes: ["openai/"], stripOwner: true },
   claude: { prefixes: ["anthropic/"], stripOwner: true },
   grok: { prefixes: ["xai/"], stripOwner: true },
@@ -248,6 +299,10 @@ function fetchPublicCatalog(): Promise<string[]> {
     });
   }
   return publicCatalog;
+}
+
+export function resetPublicCatalog() {
+  publicCatalog = null;
 }
 
 export function hasPublicCatalog(providerId: string): boolean {
@@ -280,17 +335,23 @@ export function isProviderListReady(providerId: string, vars: Record<string, str
 export async function listProviderModels(
   providerId: string,
   ctx: ModelListContext
-): Promise<string[]> {
+): Promise<{ ids: string[]; official: boolean }> {
   const src = SOURCES[providerId];
   if (!src) throw new Error(`Model listing is not supported for '${providerId}'.`);
   // Official account-scoped list when credentials are present, otherwise the
   // public catalog fallback (no key needed).
   if (src.ready(ctx.vars || {})) {
-    const ids = await src.fetch(ctx);
-    if (ids.length === 0) throw new Error("No models returned for this key/region.");
-    return ids;
+    try {
+      const ids = await src.fetch(ctx);
+      if (ids.length > 0) return { ids, official: true };
+    } catch (e) {
+      // Official failed (bad key, restricted account, outage?) — fall through
+      // to the public catalog instead of dead-ending the UI.
+      if (!hasPublicCatalog(providerId)) throw e;
+    }
   }
-  return listFromPublicCatalog(providerId);
+  if (ctx.force) resetPublicCatalog();
+  return { ids: await listFromPublicCatalog(providerId), official: false };
 }
 
 export { bedrockApiBase };
