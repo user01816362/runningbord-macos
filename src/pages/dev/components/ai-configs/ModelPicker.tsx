@@ -22,7 +22,6 @@ import {
 } from "@/lib/storage";
 import {
   canListProviderModels,
-  hasPublicCatalog,
   isProviderListReady,
   listProviderModels,
 } from "@/lib/functions/models.function";
@@ -36,7 +35,7 @@ function cacheKey(providerId: string, vars: Record<string, string>, curl: string
 
 /**
  * Global model field: searchable dropdown fed by each provider's official
- * list-models API (keyless public catalog when no key). Auto-fetches when
+ * list-models API. Auto-fetches once the key is in,
  * ready, refresh icon re-fetches, current selection stays visible, saved
  * custom IDs are editable + deletable, last item adds a new custom ID.
  */
@@ -68,7 +67,7 @@ export const ModelPicker = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [official, setOfficial] = useState(true);
+  
   const [customMode, setCustomMode] = useState(false);
   const [customValue, setCustomValue] = useState("");
   const [customs, setCustoms] = useState<string[]>([]);
@@ -81,12 +80,12 @@ export const ModelPicker = ({
   const store = slot || providerId;
   const supported = canListProviderModels(providerId);
   const keyReady = supported && isProviderListReady(providerId, variables || {});
-  // Keyless path: public catalog (exact account list once the key is in).
-  const canFetch = supported && (keyReady || hasPublicCatalog(providerId));
+  // Key-gated: official account list only.
+  const canFetch = supported && keyReady;
 
   const doFetch = useCallback(
     async (force: boolean) => {
-      if (!supported || !(keyReady || hasPublicCatalog(providerId))) return;
+      if (!supported || !keyReady) return;
       const key = cacheKey(providerId, variables || {}, curl);
       if (!force && cache.has(key)) {
         setModels(cache.get(key) || []);
@@ -98,15 +97,13 @@ export const ModelPicker = ({
       setLoading(true);
       setError(null);
       try {
-        const result = await listProviderModels(providerId, {
+        const ids = await listProviderModels(providerId, {
           vars: variables || {},
           curl,
-          force,
         });
         if (requestIdRef.current !== requestId) return; // stale: creds changed mid-flight
-        cache.set(key, result.ids);
-        setModels(result.ids);
-        setOfficial(result.official);
+        cache.set(key, ids);
+        setModels(ids);
         setUpdatedAt(Date.now());
       } catch (e) {
         if (requestIdRef.current !== requestId) return;
@@ -164,7 +161,7 @@ export const ModelPicker = ({
           description ||
           (keyReady
             ? `Required — models from your ${providerLabel} account, fetched automatically.`
-            : "Required — public model list (add API key for your exact account models).")
+            : "Required — enter the API key above to load your account models.")
         }
       />
       <div className="flex gap-2">
@@ -267,7 +264,7 @@ export const ModelPicker = ({
                 </CommandGroup>
                 {updatedAt ? (
                   <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t">
-                    {official ? "Your account" : "Public list"} · Updated{" "}
+                    Your account · Updated{" "}
                     {new Date(updatedAt).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
@@ -284,7 +281,7 @@ export const ModelPicker = ({
           size="icon"
           variant="outline"
           className="shrink-0 h-11 w-11"
-          title={keyReady ? "Refresh model list" : "Refresh public list (add key for account list)"}
+          title="Refresh model list"
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
