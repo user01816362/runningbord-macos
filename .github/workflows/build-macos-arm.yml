@@ -9,6 +9,8 @@ jobs:
   build-macos-arm:
     # macos-14 runners are Apple Silicon; nothing else builds here.
     runs-on: macos-14
+    permissions:
+      contents: write # needed to create the auto release
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,3 +50,12 @@ jobs:
           name: runningbord-macos-aarch64-dmg
           path: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
+
+      - name: Auto release DMG
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: macos-arm-build-${{ github.run_number }}
+          name: macOS ARM build ${{ github.run_number }}
+          body: Automated macOS Apple Silicon DMG from main (${{ github.sha }}).
+          files: src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+          fail_on_unmatched_files: true
