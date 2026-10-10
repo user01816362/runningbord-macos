@@ -10,6 +10,7 @@ import {
   getByPath,
   getStreamingContent,
 } from "./common.function";
+import { resolveBedrockEndpoint } from "./bedrock.function";
 import { Message, TYPE_PROVIDER } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
@@ -300,6 +301,22 @@ async function* streamAIResponse(
     }
 
     let url = buildRequestUrl(curlJson, allVariables);
+
+    // Bedrock: the REGION field accepts a bare region ("us-east-1") or a
+    // full endpoint/base URL — normalize to a full /chat/completions URL.
+    // Without this, a pasted URL would be embedded into the template host.
+    if (provider?.id === "bedrock") {
+      url = resolveBedrockEndpoint(
+        typeof allVariables["REGION"] === "string"
+          ? allVariables["REGION"]
+          : url
+      );
+      if (!url) {
+        throw new Error(
+          "Bedrock endpoint is empty. Enter a region (e.g. us-east-1) or a full Bedrock URL in settings."
+        );
+      }
+    }
 
     const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
     headers["Content-Type"] = "application/json";
