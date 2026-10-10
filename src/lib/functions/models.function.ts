@@ -175,11 +175,14 @@ const SOURCES: Record<string, ModelListSource> = {
     fetch: ({ vars }) => openAiShaped("https://api.groq.com/openai/v1/models", vars.api_key),
   },
   perplexity: {
-    // Agent-API catalog; no auth required for the catalog call itself.
-    ready: () => true,
-    fetch: async () => {
-      const json = await getJson("https://api.perplexity.ai/v1/models", {});
-      return uniqSorted((get(json, "data") || []).map((m: any) => m && m.id));
+    // Agent-API catalog. Docs say no auth, but live API returns 401
+    // without a key (verified 2026-10-10) — always send Bearer.
+    ready: needsKey,
+    fetch: async ({ vars }) => {
+      const json = await getJson("https://api.perplexity.ai/v1/models", {
+        Authorization: `Bearer ${vars.api_key}`,
+      });
+      return extractIds(json);
     },
   },
   openrouter: {
