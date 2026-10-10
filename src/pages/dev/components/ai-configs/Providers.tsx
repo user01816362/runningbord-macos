@@ -1,5 +1,6 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
 import { ModelPicker } from "./ModelPicker";
+import { ProviderProfiles } from "../ProviderProfiles";
 import { canListProviderModels } from "@/lib/functions/models.function";
 import { readKeychainFailed } from "@/lib/storage";
 import { STORAGE_KEYS } from "@/config";
@@ -76,6 +77,16 @@ export const Providers = ({
           }}
         />
       </div>
+
+      <ProviderProfiles
+        kind="ai"
+        title="Saved AI setups"
+        currentProvider={selectedAIProvider?.provider || ""}
+        currentVariables={selectedAIProvider?.variables || {}}
+        onApply={(provider, variables) =>
+          onSetSelectedAIProvider({ provider, variables })
+        }
+      />
 
       {localSelectedProvider ? (
         <Header

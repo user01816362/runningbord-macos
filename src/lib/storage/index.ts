@@ -9,6 +9,7 @@ export * from "./conversation.storage";
 export * from "./prompt-presets.storage";
 export * from "./personal-context.storage";
 export * from "./provider-secrets.storage";
+export * from "./provider-profiles.storage";
 export * from "./custom-models.storage";
 export * from "./profiles.storage";
 export * from "./pinned-facts.storage";

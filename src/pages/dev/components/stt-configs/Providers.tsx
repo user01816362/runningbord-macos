@@ -1,5 +1,6 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
 import { ModelPicker } from "../ai-configs/ModelPicker";
+import { ProviderProfiles } from "../ProviderProfiles";
 import { canListProviderModels } from "@/lib/functions/models.function";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
@@ -69,6 +70,16 @@ export const Providers = ({
           }}
         />
       </div>
+
+      <ProviderProfiles
+        kind="stt"
+        title="Saved STT setups"
+        currentProvider={selectedSttProvider?.provider || ""}
+        currentVariables={selectedSttProvider?.variables || {}}
+        onApply={(provider, variables) =>
+          onSetSelectedSttProvider({ provider, variables })
+        }
+      />
       {localSelectedProvider ? (
         <Header
           title={`Method: ${
