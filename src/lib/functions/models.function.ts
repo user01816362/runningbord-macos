@@ -280,31 +280,40 @@ export function canListProviderModels(providerId: string): boolean {
 }
 
 /**
- * Keyless discovery like reference apps do: OpenRouter's public catalog
- * (no auth) filtered by owner prefix. IDs are converted to each provider's
- * native style (owner stripped, except where the provider keeps it).
+ * Keyless discovery: full public catalogs, zero static owner lists.
+ * - OpenRouter's catalog (complete, verified live) backs every provider
+ *   except Perplexity; native IDs = catalog ID minus the first `owner/`
+ *   segment (generic rule — new owners work with no code change).
+ * - Perplexity's Agent catalog is already its full allowlist — used as-is.
  * Second choice after the official account list — never the source of truth.
  */
-const PUBLIC_PREFIXES: Record<string, { prefixes: string[]; stripOwner: boolean }> = {
-  openai: { prefixes: ["openai/"], stripOwner: true },
-  claude: { prefixes: ["anthropic/"], stripOwner: true },
-  grok: { prefixes: ["xai/"], stripOwner: true },
-  gemini: { prefixes: ["google/"], stripOwner: true },
-  "gemini-multimodal": { prefixes: ["google/"], stripOwner: true },
-  mistral: { prefixes: ["mistralai/"], stripOwner: true },
-  cohere: { prefixes: ["cohere/"], stripOwner: true },
-  // Groq hosts many families; keep openai/ prefix (gpt-oss), strip the rest.
-  groq: { prefixes: ["meta-llama/", "qwen/", "deepseek/", "moonshotai/", "mistralai/", "openai/"], stripOwner: true },
-  // Perplexity Agent IDs keep the owner prefix (openai/gpt-6-sol style).
-  perplexity: { prefixes: ["perplexity/", "openai/", "anthropic/", "google/", "xai/", "nvidia/", "moonshotai/", "z-ai/"], stripOwner: false },
+const PUBLIC_CATALOG_URL = "https://openrouter.ai/api/v1/models";
+const PERPLEXITY_CATALOG_URL = "https://api.perplexity.ai/v1/models";
+
+// Providers whose keyless list is the provider's own full catalog.
+const NATIVE_CATALOG: Record<string, string> = {
+  perplexity: PERPLEXITY_CATALOG_URL,
 };
+
+const KEYLESS_PROVIDERS = new Set([
+  "openai",
+  "claude",
+  "grok",
+  "gemini",
+  "gemini-multimodal",
+  "mistral",
+  "cohere",
+  "groq",
+  "perplexity",
+  "openrouter",
+]);
 
 let publicCatalog: Promise<string[]> | null = null;
 
 function fetchPublicCatalog(): Promise<string[]> {
   if (!publicCatalog) {
     publicCatalog = (async () => {
-      const json = await getJson("https://openrouter.ai/api/v1/models", {});
+      const json = await getJson(PUBLIC_CATALOG_URL, {});
       return uniqSorted((get(json, "data") || []).map((m: any) => m && m.id));
     })().catch((e) => {
       publicCatalog = null;
@@ -319,23 +328,28 @@ export function resetPublicCatalog() {
 }
 
 export function hasPublicCatalog(providerId: string): boolean {
-  return Object.prototype.hasOwnProperty.call(PUBLIC_PREFIXES, providerId);
+  return KEYLESS_PROVIDERS.has(providerId);
 }
 
 async function listFromPublicCatalog(providerId: string): Promise<string[]> {
-  const cfg = PUBLIC_PREFIXES[providerId];
-  if (!cfg) throw new Error("Enter the API key to list models.");
-  const ids = await fetchPublicCatalog();
-  const out: string[] = [];
-  for (const id of ids) {
-    const hit = cfg.prefixes.find((p) => id.startsWith(p));
-    if (!hit) continue;
-    let native = cfg.stripOwner ? id.slice(hit.length) : id;
-    // Groq keeps the openai/ prefix (gpt-oss); others strip it.
-    if (providerId === "groq" && hit === "openai/") native = id;
-    out.push(native);
+  if (!KEYLESS_PROVIDERS.has(providerId)) {
+    throw new Error("Enter the API key to list models.");
   }
-  const unique = uniqSorted(out);
+  // Provider-native full catalog (Perplexity) is used verbatim.
+  if (NATIVE_CATALOG[providerId]) {
+    const json = await getJson(NATIVE_CATALOG[providerId], {});
+    const unique = extractIds(json);
+    if (unique.length === 0) throw new Error("Public catalog has no models for this provider yet.");
+    return unique;
+  }
+  // Generic rule: native ID = catalog ID minus the first `owner/` segment.
+  const ids = await fetchPublicCatalog();
+  const unique = uniqSorted(
+    ids.map((id) => {
+      const slash = id.indexOf("/");
+      return slash >= 0 ? id.slice(slash + 1) : id;
+    })
+  );
   if (unique.length === 0) throw new Error("Public catalog has no models for this provider yet.");
   return unique;
 }
