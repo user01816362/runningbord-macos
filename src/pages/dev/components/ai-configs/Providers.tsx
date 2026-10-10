@@ -287,6 +287,42 @@ export const Providers = ({
             </div>
               );
             })()}
+            {(() => {
+              const provider = allAiProviders?.find(
+                (p) => p?.id === selectedAIProvider?.provider
+              );
+              if (provider && canListProviderModels(provider.id || "")) {
+                const getSlowApiKey = () => {
+                  const apiKeyVar = findKeyAndValue("api_key");
+                  if (!apiKeyVar || !selectedAIProvider?.variables) return "";
+                  return selectedAIProvider.variables[apiKeyVar.key] || "";
+                };
+                return (
+                  <ModelPicker
+                    providerId={provider.id || ""}
+                    providerLabel={
+                      provider.isCustom ? "Custom Provider" : provider.id || ""
+                    }
+                    apiKey={getSlowApiKey()}
+                    curl={provider.curl || ""}
+                    variables={selectedAIProvider?.variables || {}}
+                    value={selectedAIProvider?.variables?.slow_model || ""}
+                    title="Slow Model"
+                    description="Optional — a higher-quality model for deeper responses. Same account list; pick or type custom."
+                    onSelect={(id) => {
+                      if (!selectedAIProvider) return;
+                      onSetSelectedAIProvider({
+                        ...selectedAIProvider,
+                        variables: {
+                          ...selectedAIProvider.variables,
+                          slow_model: id,
+                        },
+                      });
+                    }}
+                  />
+                );
+              }
+              return (
             <div className="space-y-1">
               <Header
                 title="Slow Model"
@@ -307,6 +343,8 @@ export const Providers = ({
                 }}
               />
             </div>
+              );
+            })()}
           </>
         ) : null}
       </div>

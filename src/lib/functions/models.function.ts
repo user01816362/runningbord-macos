@@ -2,6 +2,9 @@
 // Endpoint/auth/shape facts verified against first-party developer docs
 // (research: LIST_MODELS_API_2026.md, as-of 2026-10-10). Bearer keys only —
 // no SigV4 anywhere. Returns sorted unique chat-usable model IDs.
+//
+// Transport: Tauri HTTP plugin (Rust-side fetch, no browser CORS/preflight).
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { bedrockApiBase, fetchBedrockModels, resolveBedrockEndpoint } from "./bedrock.function";
 
 export interface ModelListContext {
@@ -30,21 +33,39 @@ function uniqSorted(ids: any[]): string[] {
 }
 
 async function getJson(url: string, headers: Record<string, string>): Promise<any> {
-  const res = await fetch(url, { headers });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Models request failed (${res.status})${text ? `: ${text.slice(0, 160)}` : ""}`
-    );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await tauriFetch(url, { headers, signal: controller.signal });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(
+        `Models request failed (${res.status})${text ? `: ${text.slice(0, 160)}` : ""}`
+      );
+    }
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
   }
-  return res.json();
+}
+
+/** Shape-agnostic ID extractor (OpenAI {data[]} + bare arrays + {models[]}). */
+function extractIds(json: any): string[] {
+  if (!json) return [];
+  const list = Array.isArray(json)
+    ? json
+    : get(json, "data") || get(json, "models") || [];
+  if (!Array.isArray(list)) return [];
+  return uniqSorted(list.map((m: any) => (typeof m === "string" ? m : m && (m.id || m.name))));
 }
 
 const needsKey = (vars: Record<string, string>) => !!vars.api_key?.trim();
 
 async function openAiShaped(url: string, key: string): Promise<string[]> {
   const json = await getJson(url, { Authorization: `Bearer ${key}` });
-  return uniqSorted((get(json, "data") || []).map((m: any) => m && m.id));
+  // No capability flags in this response — drop obvious non-chat IDs by name.
+  const NON_CHAT = /embedding|tts|whisper|dall-e|moderation|realtime|davinci|babbage|audio-/i;
+  return extractIds(json).filter((id) => !NON_CHAT.test(id));
 }
 
 function originOf(curl: string, fallback: string): string {
@@ -87,10 +108,15 @@ const SOURCES: Record<string, ModelListSource> = {
   grok: {
     ready: needsKey,
     fetch: async ({ vars }) => {
-      const json = await getJson("https://api.x.ai/v1/language-models", {
-        Authorization: `Bearer ${vars.api_key}`,
-      });
-      return uniqSorted(((get(json, "models") || get(json, "data")) || []).map((m: any) => m && m.id));
+      // Chat + image-understanding list (full info). Falls back to minimal list.
+      try {
+        const json = await getJson("https://api.x.ai/v1/language-models", {
+          Authorization: `Bearer ${vars.api_key}`,
+        });
+        return extractIds(json);
+      } catch {
+        return openAiShaped("https://api.x.ai/v1/models", vars.api_key);
+      }
     },
   },
   gemini: {
@@ -107,7 +133,11 @@ const SOURCES: Record<string, ModelListSource> = {
         for (const m of get(json, "models") || []) {
           const methods = get(m, "supportedGenerationMethods") || [];
           if (Array.isArray(methods) && methods.includes("generateContent")) {
-            all.push(get(m, "baseModelId") || String(get(m, "name") || "").replace(/^models\//, ""));
+            // baseModelId is what generate calls take; name is models/{id}.
+            const id =
+              get(m, "baseModelId") ||
+              String(get(m, "name") || "").replace(/^models\//, "");
+            if (id && !/embedding|imagen|aqa|learnlm/i.test(id)) all.push(id);
           }
         }
         pageToken = get(json, "nextPageToken") || "";

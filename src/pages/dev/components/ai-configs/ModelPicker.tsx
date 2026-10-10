@@ -40,6 +40,8 @@ export const ModelPicker = ({
   variables,
   value,
   onSelect,
+  title,
+  description,
 }: {
   providerId: string;
   providerLabel: string;
@@ -48,6 +50,8 @@ export const ModelPicker = ({
   variables: Record<string, string>;
   value: string;
   onSelect: (modelId: string) => void;
+  title?: string;
+  description?: string;
 }) => {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -109,14 +113,23 @@ export const ModelPicker = ({
 
   const visible = value && !models.includes(value) ? [value, ...models] : models;
 
+  const handleOpenChange = (next: boolean) => {
+    setOpen(next);
+    // Fetch on open when we have nothing to show (cache makes repeats cheap).
+    if (next && ready && !loading && models.length === 0) void doFetch(false);
+  };
+
   return (
     <div className="space-y-1">
       <Header
-        title="Model *"
-        description={`Required — models from your ${providerLabel} account, fetched automatically. Last item lets you type a custom ID.`}
+        title={title || "Model *"}
+        description={
+          description ||
+          `Required — models from your ${providerLabel} account, fetched automatically. Last item lets you type a custom ID.`
+        }
       />
       <div className="flex gap-2">
-        <Popover open={open} onOpenChange={setOpen}>
+        <Popover open={open} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>
             <Button
               variant="outline"

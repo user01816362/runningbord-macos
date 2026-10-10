@@ -9,6 +9,8 @@
 //
 // Note: a long-term API key works ONLY in the region it was generated in.
 
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+
 /**
  * Accepts either a bare region ("us-east-1", optionally with a pasted path)
  * or a full endpoint/base URL, and returns a full /chat/completions URL.
@@ -40,20 +42,28 @@ export async function fetchBedrockModels(
   apiKey: string
 ): Promise<string[]> {
   const url = `${bedrockApiBase(endpoint)}/models`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${apiKey}` },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(
-      `Bedrock models request failed (${res.status})${
-        text ? `: ${text.slice(0, 200)}` : ""
-      }`
-    );
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await tauriFetch(url, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(
+        `Bedrock models request failed (${res.status})${
+          text ? `: ${text.slice(0, 200)}` : ""
+        }`
+      );
+    }
+    const json = await res.json();
+    const list = (json && (json.data || json.models)) || [];
+    const ids = (Array.isArray(list) ? list : [])
+      .map((m: any) => (typeof m === "string" ? m : m && (m.id || m.name)))
+      .filter((id: any) => typeof id === "string" && id.length > 0);
+    return [...new Set(ids)].sort() as string[];
+  } finally {
+    clearTimeout(timeout);
   }
-  const json = await res.json();
-  const ids = ((json && json.data) || [])
-    .map((m: any) => m && m.id)
-    .filter((id: any) => typeof id === "string" && id.length > 0);
-  return [...new Set(ids)].sort() as string[];
 }
