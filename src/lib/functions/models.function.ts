@@ -12,6 +12,8 @@ export interface ModelListContext {
   vars: Record<string, string>;
   /** Raw curl template of the provider (used to derive hosts, e.g. Ollama) */
   curl: string;
+  /** Bypass caches (refresh icon). */
+  force?: boolean;
 }
 
 export interface ModelListSource {
@@ -277,6 +279,67 @@ export function canListProviderModels(providerId: string): boolean {
   return Object.prototype.hasOwnProperty.call(SOURCES, providerId);
 }
 
+/**
+ * Keyless discovery like reference apps do: OpenRouter's public catalog
+ * (no auth) filtered by owner prefix. IDs are converted to each provider's
+ * native style (owner stripped, except where the provider keeps it).
+ * Second choice after the official account list — never the source of truth.
+ */
+const PUBLIC_PREFIXES: Record<string, { prefixes: string[]; stripOwner: boolean }> = {
+  openai: { prefixes: ["openai/"], stripOwner: true },
+  claude: { prefixes: ["anthropic/"], stripOwner: true },
+  grok: { prefixes: ["xai/"], stripOwner: true },
+  gemini: { prefixes: ["google/"], stripOwner: true },
+  "gemini-multimodal": { prefixes: ["google/"], stripOwner: true },
+  mistral: { prefixes: ["mistralai/"], stripOwner: true },
+  cohere: { prefixes: ["cohere/"], stripOwner: true },
+  // Groq hosts many families; keep openai/ prefix (gpt-oss), strip the rest.
+  groq: { prefixes: ["meta-llama/", "qwen/", "deepseek/", "moonshotai/", "mistralai/", "openai/"], stripOwner: true },
+  // Perplexity Agent IDs keep the owner prefix (openai/gpt-6-sol style).
+  perplexity: { prefixes: ["perplexity/", "openai/", "anthropic/", "google/", "xai/", "nvidia/", "moonshotai/", "z-ai/"], stripOwner: false },
+};
+
+let publicCatalog: Promise<string[]> | null = null;
+
+function fetchPublicCatalog(): Promise<string[]> {
+  if (!publicCatalog) {
+    publicCatalog = (async () => {
+      const json = await getJson("https://openrouter.ai/api/v1/models", {});
+      return uniqSorted((get(json, "data") || []).map((m: any) => m && m.id));
+    })().catch((e) => {
+      publicCatalog = null;
+      throw e;
+    });
+  }
+  return publicCatalog;
+}
+
+export function resetPublicCatalog() {
+  publicCatalog = null;
+}
+
+export function hasPublicCatalog(providerId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PUBLIC_PREFIXES, providerId);
+}
+
+async function listFromPublicCatalog(providerId: string): Promise<string[]> {
+  const cfg = PUBLIC_PREFIXES[providerId];
+  if (!cfg) throw new Error("Enter the API key to list models.");
+  const ids = await fetchPublicCatalog();
+  const out: string[] = [];
+  for (const id of ids) {
+    const hit = cfg.prefixes.find((p) => id.startsWith(p));
+    if (!hit) continue;
+    let native = cfg.stripOwner ? id.slice(hit.length) : id;
+    // Groq keeps the openai/ prefix (gpt-oss); others strip it.
+    if (providerId === "groq" && hit === "openai/") native = id;
+    out.push(native);
+  }
+  const unique = uniqSorted(out);
+  if (unique.length === 0) throw new Error("Public catalog has no models for this provider yet.");
+  return unique;
+}
+
 export function isProviderListReady(providerId: string, vars: Record<string, string>): boolean {
   const src = SOURCES[providerId];
   return !!src && src.ready(vars || {});
@@ -290,15 +353,20 @@ export function isProviderListReady(providerId: string, vars: Record<string, str
 export async function listProviderModels(
   providerId: string,
   ctx: ModelListContext
-): Promise<string[]> {
+): Promise<{ ids: string[]; official: boolean }> {
   const src = SOURCES[providerId];
   if (!src) throw new Error(`Model listing is not supported for '${providerId}'.`);
-  if (!src.ready(ctx.vars || {})) {
-    throw new Error("Enter the API key to list models.");
+  // Official account-scoped list first; public catalog fallback (no key).
+  if (src.ready(ctx.vars || {})) {
+    try {
+      const ids = await src.fetch(ctx);
+      if (ids.length > 0) return { ids, official: true };
+    } catch (e) {
+      if (!hasPublicCatalog(providerId)) throw e;
+    }
   }
-  const ids = await src.fetch(ctx);
-  if (ids.length === 0) throw new Error("No models returned for this key/region.");
-  return ids;
+  if (ctx.force) resetPublicCatalog();
+  return { ids: await listFromPublicCatalog(providerId), official: false };
 }
 
 export { bedrockApiBase };

@@ -270,6 +270,7 @@ export const Providers = ({
                 };
                 return (
                   <ModelPicker
+                    key={`fast:${provider.id || ""}`}
                     providerId={provider.id || ""}
                     providerLabel={
                       provider.isCustom ? "Custom Provider" : provider.id || ""
@@ -316,6 +317,7 @@ export const Providers = ({
                 };
                 return (
                   <ModelPicker
+                    key={`slow:${provider.id || ""}`}
                     providerId={provider.id || ""}
                     providerLabel={
                       provider.isCustom ? "Custom Provider" : provider.id || ""
@@ -326,6 +328,7 @@ export const Providers = ({
                     value={selectedAIProvider?.variables?.slow_model || ""}
                     title="Slow Model"
                     description="Optional — a higher-quality model for deeper responses. Same account list; pick or type custom."
+                    slot={`slow:${provider.id || ""}`}
                     onSelect={(id) => {
                       if (!selectedAIProvider) return;
                       onSetSelectedAIProvider({

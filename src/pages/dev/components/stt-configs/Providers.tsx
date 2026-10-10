@@ -241,6 +241,7 @@ export const Providers = ({
             const apiKeyVar = findKeyAndValue("api_key");
             return (
               <ModelPicker
+                key={sttId}
                 providerId={sttId}
                 providerLabel={provider?.isCustom ? "Custom Provider" : selectedSttProvider.provider}
                 apiKey={apiKeyVar && selectedSttProvider.variables ? selectedSttProvider.variables[apiKeyVar.key] || "" : ""}

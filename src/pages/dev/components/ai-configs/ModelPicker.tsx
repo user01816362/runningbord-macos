@@ -22,6 +22,7 @@ import {
 } from "@/lib/storage";
 import {
   canListProviderModels,
+  hasPublicCatalog,
   isProviderListReady,
   listProviderModels,
 } from "@/lib/functions/models.function";
@@ -74,18 +75,19 @@ export const ModelPicker = ({
   const [editingCustom, setEditingCustom] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [updatedAt, setUpdatedAt] = useState<number | null>(null);
+  const [official, setOfficial] = useState(true);
   const fetchingRef = useRef("");
   const requestIdRef = useRef(0);
 
   const store = slot || providerId;
   const supported = canListProviderModels(providerId);
   const keyReady = supported && isProviderListReady(providerId, variables || {});
-  // Key-gated: official account list only.
-  const canFetch = supported && keyReady;
+  // Official account list with key; public catalog without.
+  const canFetch = supported && (keyReady || hasPublicCatalog(providerId));
 
   const doFetch = useCallback(
     async (force: boolean) => {
-      if (!supported || !keyReady) return;
+      if (!supported || !(keyReady || hasPublicCatalog(providerId))) return;
       const key = cacheKey(providerId, variables || {}, curl);
       if (!force && cache.has(key)) {
         setModels(cache.get(key) || []);
@@ -97,13 +99,15 @@ export const ModelPicker = ({
       setLoading(true);
       setError(null);
       try {
-        const ids = await listProviderModels(providerId, {
+        const result = await listProviderModels(providerId, {
           vars: variables || {},
           curl,
+          force,
         });
         if (requestIdRef.current !== requestId) return; // stale: creds changed mid-flight
-        cache.set(key, ids);
-        setModels(ids);
+        cache.set(key, result.ids);
+        setModels(result.ids);
+        setOfficial(result.official);
         setUpdatedAt(Date.now());
       } catch (e) {
         if (requestIdRef.current !== requestId) return;
@@ -161,7 +165,9 @@ export const ModelPicker = ({
           description ||
           (keyReady
             ? `Required — models from your ${providerLabel} account, fetched automatically.`
-            : "Required — enter the API key above to load your account models.")
+            : hasPublicCatalog(providerId)
+              ? "Required — public model list (add API key for your exact account models)."
+              : `Required — enter your ${providerLabel} API key above to load models.`)
         }
       />
       <div className="flex gap-2">
@@ -264,7 +270,7 @@ export const ModelPicker = ({
                 </CommandGroup>
                 {updatedAt ? (
                   <div className="px-3 py-1.5 text-[11px] text-muted-foreground border-t">
-                    Your account · Updated{" "}
+                    {official ? "Your account" : "Public list"} · Updated{" "}
                     {new Date(updatedAt).toLocaleTimeString([], {
                       hour: "2-digit",
                       minute: "2-digit",
