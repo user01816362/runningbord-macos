@@ -252,12 +252,21 @@ const SOURCES: Record<string, ModelListSource> = {
     },
   },
   "stt:deepgram-stt": {
-    ready: needsKey,
+    // Public route (verified live 200, no key). Prefer batch-capable entries:
+    // the app posts pre-recorded REST audio.
+    ready: () => true,
     fetch: async ({ vars }) => {
-      const json = await getJson("https://api.deepgram.com/v1/models", {
-        Authorization: `Token ${vars.api_key}`,
-      });
-      return extractIds(json);
+      const headers: Record<string, string> = {};
+      if (vars.api_key?.trim()) headers.Authorization = `Token ${vars.api_key}`;
+      const json = await getJson("https://api.deepgram.com/v1/models", headers);
+      const stt = get(json, "stt") || [];
+      const batch = stt.filter((m: any) => m && m.batch !== false);
+      const pick = (batch.length > 0 ? batch : stt).map(
+        (m: any) => m && (m.canonical_name || m.name)
+      );
+      const ids = uniqSorted(pick);
+      if (ids.length === 0) throw new Error("No Deepgram STT models listed.");
+      return ids;
     },
   },
   // Bedrock has no transcriptions-style endpoint; Voxtral speech-to-text
