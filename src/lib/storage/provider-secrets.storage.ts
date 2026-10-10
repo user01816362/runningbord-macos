@@ -13,6 +13,8 @@ export interface ProviderSelection {
 
 interface StoredSelection extends ProviderSelection {
   secretVariables?: string[];
+  /** True when the last save could not reach the OS credential store. */
+  keychainFailed?: boolean;
 }
 
 const SECRET_NAME = /key|token|secret|password|credential/i;
@@ -37,18 +39,39 @@ async function saveSecrets(kind: "ai" | "stt", selection: ProviderSelection): Pr
   return names;
 }
 
-/** Store a selection: secrets to the credential store first, then the rest locally. */
+/** Store a selection. Never fails hard on credential-store errors: secrets
+ * that cannot reach the keychain are kept in memory for this session and the
+ * failure is recorded, but provider/model/region choices are always saved. */
 export async function persistProviderSelection(
   storageKey: string,
   kind: "ai" | "stt",
   selection: ProviderSelection
 ): Promise<void> {
-  const secretVariables = await saveSecrets(kind, selection);
+  let secretVariables: string[] = [];
+  let keychainFailed = false;
+  try {
+    secretVariables = await saveSecrets(kind, selection);
+  } catch (error) {
+    // Keychain denied/unavailable: session keeps working from memory.
+    console.warn("Couldn't save API keys to the system keychain:", error);
+    keychainFailed = true;
+  }
   const variables = Object.fromEntries(
     Object.entries(selection.variables).filter(([name]) => !isSecretVariable(name))
   );
-  const stored: StoredSelection = { provider: selection.provider, variables, secretVariables };
+  const stored: StoredSelection = { provider: selection.provider, variables, secretVariables, keychainFailed };
   safeLocalStorage.setItem(storageKey, JSON.stringify(stored));
+}
+
+/** True when the last save for this slot could not reach the OS credential store. */
+export function readKeychainFailed(storageKey: string): boolean {
+  try {
+    const raw = safeLocalStorage.getItem(storageKey);
+    if (!raw) return false;
+    return (JSON.parse(raw) as StoredSelection)?.keychainFailed === true;
+  } catch {
+    return false;
+  }
 }
 
 /**

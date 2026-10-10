@@ -1,6 +1,8 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
 import { ModelPicker } from "./ModelPicker";
 import { canListProviderModels } from "@/lib/functions/models.function";
+import { readKeychainFailed } from "@/lib/storage";
+import { STORAGE_KEYS } from "@/config";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
@@ -14,6 +16,11 @@ export const Providers = ({
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const [keychainBlocked, setKeychainBlocked] = useState(false);
+
+  useEffect(() => {
+    setKeychainBlocked(readKeychainFailed(STORAGE_KEYS.SELECTED_AI_PROVIDER));
+  }, [selectedAIProvider?.provider]);
 
   useEffect(() => {
     if (selectedAIProvider?.provider) {
@@ -77,6 +84,16 @@ export const Providers = ({
           }, Endpoint: ${localSelectedProvider?.url || "Invalid"}`}
           description={`If you want to use different url or method, you can always create a custom provider.`}
         />
+      ) : null}
+
+      {keychainBlocked ? (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <p className="text-xs font-medium text-destructive">
+            System keychain blocked — your API key works for this session only
+            and must be re-entered after restart. Provider, model and region
+            are still saved. Allow Keychain access to persist the key securely.
+          </p>
+        </div>
       ) : null}
 
       {findKeyAndValue("api_key") ? (
