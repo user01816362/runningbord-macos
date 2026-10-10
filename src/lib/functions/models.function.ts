@@ -217,6 +217,61 @@ export function canListProviderModels(providerId: string): boolean {
   return Object.prototype.hasOwnProperty.call(SOURCES, providerId);
 }
 
+/**
+ * Keyless discovery like reference apps do: OpenRouter's public catalog
+ * (no auth) filtered by owner prefix. IDs are converted to each provider's
+ * native style (owner stripped, except where the provider keeps it).
+ */
+const PUBLIC_PREFIXES: Record<string, { prefixes: string[]; stripOwner: boolean }> = {
+  openai: { prefixes: ["openai/"], stripOwner: true },
+  claude: { prefixes: ["anthropic/"], stripOwner: true },
+  grok: { prefixes: ["xai/"], stripOwner: true },
+  gemini: { prefixes: ["google/"], stripOwner: true },
+  mistral: { prefixes: ["mistralai/"], stripOwner: true },
+  cohere: { prefixes: ["cohere/"], stripOwner: true },
+  // Groq hosts many families; keep openai/ prefix (gpt-oss), strip the rest.
+  groq: { prefixes: ["meta-llama/", "qwen/", "deepseek/", "moonshotai/", "mistralai/", "openai/"], stripOwner: true },
+  // Perplexity Agent IDs keep the owner prefix (openai/gpt-6-sol style).
+  perplexity: { prefixes: ["perplexity/", "openai/", "anthropic/", "google/", "xai/", "nvidia/", "moonshotai/", "z-ai/"], stripOwner: false },
+};
+
+let publicCatalog: Promise<string[]> | null = null;
+
+function fetchPublicCatalog(): Promise<string[]> {
+  if (!publicCatalog) {
+    publicCatalog = (async () => {
+      const json = await getJson("https://openrouter.ai/api/v1/models", {});
+      return uniqSorted((get(json, "data") || []).map((m: any) => m && m.id));
+    })().catch((e) => {
+      publicCatalog = null;
+      throw e;
+    });
+  }
+  return publicCatalog;
+}
+
+export function hasPublicCatalog(providerId: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PUBLIC_PREFIXES, providerId);
+}
+
+async function listFromPublicCatalog(providerId: string): Promise<string[]> {
+  const cfg = PUBLIC_PREFIXES[providerId];
+  if (!cfg) throw new Error("Enter the API key to list models.");
+  const ids = await fetchPublicCatalog();
+  const out: string[] = [];
+  for (const id of ids) {
+    const hit = cfg.prefixes.find((p) => id.startsWith(p));
+    if (!hit) continue;
+    let native = cfg.stripOwner ? id.slice(hit.length) : id;
+    // Groq keeps the openai/ prefix (gpt-oss); others strip it.
+    if (providerId === "groq" && hit === "openai/") native = id;
+    out.push(native);
+  }
+  const unique = uniqSorted(out);
+  if (unique.length === 0) throw new Error("Public catalog has no models for this provider yet.");
+  return unique;
+}
+
 export function isProviderListReady(providerId: string, vars: Record<string, string>): boolean {
   const src = SOURCES[providerId];
   return !!src && src.ready(vars || {});
@@ -228,9 +283,14 @@ export async function listProviderModels(
 ): Promise<string[]> {
   const src = SOURCES[providerId];
   if (!src) throw new Error(`Model listing is not supported for '${providerId}'.`);
-  const ids = await src.fetch(ctx);
-  if (ids.length === 0) throw new Error("No models returned for this key/region.");
-  return ids;
+  // Official account-scoped list when credentials are present, otherwise the
+  // public catalog fallback (no key needed).
+  if (src.ready(ctx.vars || {})) {
+    const ids = await src.fetch(ctx);
+    if (ids.length === 0) throw new Error("No models returned for this key/region.");
+    return ids;
+  }
+  return listFromPublicCatalog(providerId);
 }
 
 export { bedrockApiBase };

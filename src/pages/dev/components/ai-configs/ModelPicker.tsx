@@ -16,6 +16,7 @@ import {
 import { Check, ChevronsUpDown, Loader2, Pencil, RefreshCw } from "lucide-react";
 import {
   canListProviderModels,
+  hasPublicCatalog,
   isProviderListReady,
   listProviderModels,
 } from "@/lib/functions/models.function";
@@ -64,7 +65,9 @@ export const ModelPicker = ({
   const requestIdRef = useRef(0);
 
   const supported = canListProviderModels(providerId);
-  const ready = supported && isProviderListReady(providerId, variables || {});
+  const keyReady = supported && isProviderListReady(providerId, variables || {});
+  // Keyless path: public catalog (exact account list once the key is in).
+  const canFetch = supported && (keyReady || hasPublicCatalog(providerId));
 
   const doFetch = useCallback(
     async (force: boolean) => {
@@ -101,7 +104,7 @@ export const ModelPicker = ({
 
   // Auto-fetch when provider/credentials become ready; manual refresh via icon.
   useEffect(() => {
-    if (ready) void doFetch(false);
+    if (canFetch) void doFetch(false);
     else {
       setModels([]);
       setError(null);
@@ -116,7 +119,7 @@ export const ModelPicker = ({
   const handleOpenChange = (next: boolean) => {
     setOpen(next);
     // Fetch on open when we have nothing to show (cache makes repeats cheap).
-    if (next && ready && !loading && models.length === 0) void doFetch(false);
+    if (next && canFetch && !loading && models.length === 0) void doFetch(false);
   };
 
   return (
@@ -189,11 +192,11 @@ export const ModelPicker = ({
         </Popover>
         <Button
           onClick={() => void doFetch(true)}
-          disabled={!ready || loading}
+          disabled={!canFetch || loading}
           size="icon"
           variant="outline"
           className="shrink-0 h-11 w-11"
-          title={ready ? "Refresh model list" : "Enter API key first"}
+          title={keyReady ? "Refresh model list" : "Public list — add API key for your exact account models"}
         >
           {loading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -224,7 +227,7 @@ export const ModelPicker = ({
         </div>
       ) : null}
       {error && <p className="text-xs text-destructive">{error}</p>}
-      {ready && !loading && models.length === 0 && !error ? (
+      {canFetch && !loading && models.length === 0 && !error ? (
         <p className="text-xs text-muted-foreground">Fetching models…</p>
       ) : null}
     </div>
