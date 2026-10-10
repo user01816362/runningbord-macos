@@ -1,4 +1,6 @@
 import { Button, Header, Input, Selection, TextInput } from "@/components";
+import { ModelPicker } from "./ModelPicker";
+import { canListProviderModels } from "@/lib/functions/models.function";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
@@ -229,6 +231,41 @@ export const Providers = ({
         {/* Fast Model / Slow Model fields (only when provider has a MODEL variable) */}
         {findKeyAndValue("model") ? (
           <>
+            {(() => {
+              const provider = allAiProviders?.find(
+                (p) => p?.id === selectedAIProvider?.provider
+              );
+              const setModel = (id: string) => {
+                if (!selectedAIProvider) return;
+                onSetSelectedAIProvider({
+                  ...selectedAIProvider,
+                  variables: {
+                    ...selectedAIProvider.variables,
+                    model: id,
+                  },
+                });
+              };
+              if (provider && canListProviderModels(provider.id || "")) {
+                const getApiKey = () => {
+                  const apiKeyVar = findKeyAndValue("api_key");
+                  if (!apiKeyVar || !selectedAIProvider?.variables) return "";
+                  return selectedAIProvider.variables[apiKeyVar.key] || "";
+                };
+                return (
+                  <ModelPicker
+                    providerId={provider.id || ""}
+                    providerLabel={
+                      provider.isCustom ? "Custom Provider" : provider.id || ""
+                    }
+                    apiKey={getApiKey()}
+                    curl={provider.curl || ""}
+                    variables={selectedAIProvider?.variables || {}}
+                    value={selectedAIProvider?.variables?.model || ""}
+                    onSelect={setModel}
+                  />
+                );
+              }
+              return (
             <div className="space-y-1">
               <Header
                 title="Fast Model *"
@@ -244,17 +281,12 @@ export const Providers = ({
                 placeholder={`Enter fast model name (e.g. gpt-4o-mini)`}
                 value={selectedAIProvider?.variables?.model || ""}
                 onChange={(value) => {
-                  if (!selectedAIProvider) return;
-                  onSetSelectedAIProvider({
-                    ...selectedAIProvider,
-                    variables: {
-                      ...selectedAIProvider.variables,
-                      model: value,
-                    },
-                  });
+                  setModel(typeof value === "string" ? value : "");
                 }}
               />
             </div>
+              );
+            })()}
             <div className="space-y-1">
               <Header
                 title="Slow Model"

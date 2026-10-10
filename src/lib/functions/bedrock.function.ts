@@ -23,3 +23,37 @@ export function resolveBedrockEndpoint(raw: string): string {
   if (!region) return "";
   return `https://bedrock-mantle.${region}.api.aws/v1/chat/completions`;
 }
+
+/** Strip a /chat/completions suffix to get the API base (for /models). */
+export function bedrockApiBase(endpoint: string): string {
+  return endpoint
+    .replace(/\/chat\/completions\/?$/i, "")
+    .replace(/\/+$/, "");
+}
+
+/**
+ * Official model discovery: GET {base}/models with the Bedrock API key.
+ * Returns sorted unique model IDs.
+ */
+export async function fetchBedrockModels(
+  endpoint: string,
+  apiKey: string
+): Promise<string[]> {
+  const url = `${bedrockApiBase(endpoint)}/models`;
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(
+      `Bedrock models request failed (${res.status})${
+        text ? `: ${text.slice(0, 200)}` : ""
+      }`
+    );
+  }
+  const json = await res.json();
+  const ids = ((json && json.data) || [])
+    .map((m: any) => m && m.id)
+    .filter((id: any) => typeof id === "string" && id.length > 0);
+  return [...new Set(ids)].sort() as string[];
+}
