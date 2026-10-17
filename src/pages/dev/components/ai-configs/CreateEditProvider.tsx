@@ -23,8 +23,8 @@ import { cn } from "@/lib/utils";
 import {
   validateBaseUrl,
   generateOpenAICurl,
-  fetchCustomProviderModels,
 } from "@/lib";
+import { fetchCustomProviderModels } from "@/lib/functions/models.function";
 
 interface CreateEditProviderProps {
   customProviderHook?: ReturnType<typeof useCustomAiProviders>;

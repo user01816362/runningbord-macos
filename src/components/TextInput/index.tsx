@@ -7,6 +7,7 @@ export const TextInput = ({
   onChange,
   error,
   notes,
+  type = "text",
 }: {
   label?: string;
   placeholder: string;
@@ -14,11 +15,13 @@ export const TextInput = ({
   onChange: (value: string) => void;
   error?: string;
   notes?: string;
+  type?: string;
 }) => {
   return (
     <div className="space-y-1">
       {label ? <Label className="text-xs font-medium">{label}</Label> : null}
       <Input
+        type={type}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
