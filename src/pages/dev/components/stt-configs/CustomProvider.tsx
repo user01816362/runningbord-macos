@@ -40,25 +40,25 @@ export const CustomProviders = ({ allSttProviders }: UseSettingsReturn) => {
                     <div className="flex items-center justify-between">
                       <div>
                         <h4 className="font-medium text-sm flex items-center gap-2">
-                          <span>{provider?.name || json?.url || "Custom STT Provider"}</span>
-                          {provider?.name && json?.url && (
+                          <span>{provider?.name || provider?.baseUrl || json?.url || "Custom STT Provider"}</span>
+                          {(provider?.baseUrl || json?.url) && (
                             <span className="text-xs font-mono text-muted-foreground font-normal">
-                              ({json.url})
+                              ({provider?.baseUrl || json?.url})
                             </span>
                           )}
                         </h4>
 
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-xs text-muted-foreground">
-                            {`Response Path: ${
-                              provider?.responseContentPath || "Not set"
-                            }`}
+                            {`API Key: ${provider?.apiKey ? "••••••••" : "None"}`}
                           </p>
                           <p className="text-xs text-muted-foreground">
                             {" • "}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            Streaming: {provider?.streaming ? "Yes" : "No"}
+                            {`Response Path: ${
+                              provider?.responseContentPath || "text"
+                            }`}
                           </p>
                         </div>
                       </div>

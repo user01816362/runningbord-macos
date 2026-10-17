@@ -201,7 +201,15 @@ export const CreateEditProvider = ({
         responseContentPath: "text",
       });
     } else {
-      handleSave();
+      const match = formData.curl?.match(/https?:\/\/[^\s'"\\]+/i);
+      const extractedUrl = match ? match[0] : "";
+      handleSave({
+        ...formData,
+        name: providerName.trim() || formData.name || "Custom STT Provider",
+        baseUrl: baseUrlInput.trim() || extractedUrl,
+        apiKey: apiKeyInput.trim() || formData.apiKey || "",
+        protocol: "openai",
+      });
     }
   };
 
@@ -388,6 +396,49 @@ export const CreateEditProvider = ({
                     onChange={(value) => handleAutoFill(value)}
                   />
                 </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Header
+                    title="Provider Name"
+                    description="A friendly label (e.g. EasyCLIProxyAPI STT)."
+                  />
+                  <TextInput
+                    placeholder="EasyCLIProxyAPI STT"
+                    value={providerName}
+                    onChange={(val) =>
+                      setProviderName(typeof val === "string" ? val : "")
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Header
+                    title="Base URL / Host"
+                    description="Host and port (e.g. http://127.0.0.1:8317)."
+                  />
+                  <TextInput
+                    placeholder="http://127.0.0.1:8317"
+                    value={baseUrlInput}
+                    onChange={(val) =>
+                      setBaseUrlInput(typeof val === "string" ? val : "")
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Header
+                  title="API Key"
+                  description="Saved directly into your custom provider definition."
+                />
+                <TextInput
+                  type="password"
+                  placeholder="API Key / Token"
+                  value={apiKeyInput}
+                  onChange={(val) =>
+                    setApiKeyInput(typeof val === "string" ? val : "")
+                  }
+                />
               </div>
 
               <div className="space-y-1">

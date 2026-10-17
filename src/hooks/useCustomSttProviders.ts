@@ -11,7 +11,7 @@ import {
 } from "@/lib";
 
 export function useCustomSttProviders() {
-  const { loadData } = useApp();
+  const { loadData, selectedSttProvider, onSetSelectedSttProvider } = useApp();
   const [showForm, setShowForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [formData, setFormData] = useState<TYPE_PROVIDER>({
@@ -38,7 +38,7 @@ export function useCustomSttProviders() {
       ...provider,
     });
     setEditingProvider(providerId);
-    setShowForm(!showForm);
+    setShowForm(true);
     setErrors({});
   };
 
@@ -120,6 +120,16 @@ export function useCustomSttProviders() {
         });
 
         if (success) {
+          // If this provider is currently selected, keep active selection in sync
+          if (selectedSttProvider?.provider === editingProvider) {
+            onSetSelectedSttProvider({
+              ...selectedSttProvider,
+              variables: {
+                ...selectedSttProvider.variables,
+                api_key: dataToSave.apiKey || "",
+              },
+            });
+          }
           setEditingProvider(null);
           setShowForm(false);
           setFormData({
@@ -149,6 +159,11 @@ export function useCustomSttProviders() {
 
         const saved = addCustomSttProvider(newProvider);
         if (saved) {
+          // Auto-select newly created provider
+          onSetSelectedSttProvider({
+            provider: saved.id,
+            variables: saved.apiKey ? { api_key: saved.apiKey } : {},
+          });
           setShowForm(false);
           setFormData({
             id: "",

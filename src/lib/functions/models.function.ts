@@ -6,6 +6,7 @@
 // Transport: Tauri HTTP plugin (Rust-side fetch, no browser CORS/preflight).
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { bedrockApiBase, fetchBedrockModels, resolveBedrockEndpoint } from "./bedrock.function";
+import { getCustomAiProviders, getCustomSttProviders } from "@/lib/storage";
 
 export interface ModelListContext {
   /** Lowercased variable map, e.g. { api_key, region, model } */
@@ -37,12 +38,10 @@ function uniqSorted(ids: any[]): string[] {
 async function getJson(url: string, headers: Record<string, string>): Promise<any> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
-  const fetchFn =
-    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
-      ? tauriFetch
-      : fetch;
-  try {
-    const res = await fetchFn(url, { headers, signal: controller.signal });
+  const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+  const tryRequest = async (fetcher: typeof fetch) => {
+    const res = await fetcher(url, { headers, signal: controller.signal });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(
@@ -50,19 +49,43 @@ async function getJson(url: string, headers: Record<string, string>): Promise<an
       );
     }
     return res.json();
+  };
+
+  try {
+    if (isTauri) {
+      try {
+        return await tryRequest(tauriFetch);
+      } catch (tauriError: any) {
+        // Fallback to browser fetch if tauriFetch throws (e.g. loopback port/scope issues)
+        try {
+          return await tryRequest(fetch);
+        } catch {
+          throw tauriError;
+        }
+      }
+    } else {
+      return await tryRequest(fetch);
+    }
   } finally {
     clearTimeout(timeout);
   }
 }
 
-/** Shape-agnostic ID extractor (OpenAI {data[]} + bare arrays + {models[]}). */
+/** Shape-agnostic ID extractor (OpenAI {data[]} + Google/Antigravity {models[]} + Ollama {tags[]} + bare arrays). */
 function extractIds(json: any): string[] {
   if (!json) return [];
   const list = Array.isArray(json)
     ? json
-    : get(json, "data") || get(json, "models") || [];
+    : get(json, "data") || get(json, "models") || get(json, "tags") || [];
   if (!Array.isArray(list)) return [];
-  return uniqSorted(list.map((m: any) => (typeof m === "string" ? m : m && (m.id || m.name))));
+  return uniqSorted(
+    list.map((m: any) => {
+      const raw = typeof m === "string" ? m : m && (m.id || m.name || m.model);
+      if (typeof raw !== "string") return "";
+      // Strip Google/Antigravity "models/" prefix so ID works seamlessly with all endpoints
+      return raw.replace(/^models\//, "");
+    })
+  );
 }
 
 const needsKey = (vars: Record<string, string>) => !!vars.api_key?.trim();
@@ -289,7 +312,7 @@ const SOURCES: Record<string, ModelListSource> = {
 
 /**
  * Probes a custom provider endpoint (e.g. EasyCLIProxyAPI, Ollama, LM Studio)
- * for its model catalog across standard OpenAI, Ollama, and local model routes.
+ * for its model catalog across standard OpenAI, Gemini/Antigravity, Ollama, and local model routes.
  */
 export async function fetchCustomProviderModels(
   baseUrlOrCurl: string,
@@ -316,15 +339,21 @@ export async function fetchCustomProviderModels(
   const headers: Record<string, string> = { Accept: "application/json, text/plain, */*" };
   if (resolvedKey) {
     headers["Authorization"] = `Bearer ${resolvedKey}`;
+    headers["x-goog-api-key"] = resolvedKey;
+    headers["api-key"] = resolvedKey;
   }
 
   const stripped = cleanUrl
     .replace(/\/chat\/completions.*$/, "")
     .replace(/\/audio\/transcriptions.*$/, "")
-    .replace(/\/v1$/, "");
+    .replace(/\/(v1beta|v1)\/models.*$/, "")
+    .replace(/\/models.*$/, "")
+    .replace(/\/(v1beta|v1)$/, "");
 
   const probeUrls = [
     `${stripped}/v1/models`,
+    `${stripped}/v1beta/models`,
+    ...(resolvedKey ? [`${stripped}/v1beta/models?key=${encodeURIComponent(resolvedKey)}`] : []),
     `${cleanUrl.replace(/\/chat\/completions.*$/, "").replace(/\/audio\/transcriptions.*$/, "")}/models`,
     `${stripped}/models`,
     `${stripped}/api/tags`,
@@ -333,13 +362,18 @@ export async function fetchCustomProviderModels(
 
   if (stripped.includes("127.0.0.1")) {
     probeUrls.push(`${stripped.replace("127.0.0.1", "localhost")}/v1/models`);
+    probeUrls.push(`${stripped.replace("127.0.0.1", "localhost")}/v1beta/models`);
+    if (resolvedKey) probeUrls.push(`${stripped.replace("127.0.0.1", "localhost")}/v1beta/models?key=${encodeURIComponent(resolvedKey)}`);
     probeUrls.push(`${stripped.replace("127.0.0.1", "localhost")}/api/tags`);
   } else if (stripped.includes("localhost")) {
     probeUrls.push(`${stripped.replace("localhost", "127.0.0.1")}/v1/models`);
+    probeUrls.push(`${stripped.replace("localhost", "127.0.0.1")}/v1beta/models`);
+    if (resolvedKey) probeUrls.push(`${stripped.replace("localhost", "127.0.0.1")}/v1beta/models?key=${encodeURIComponent(resolvedKey)}`);
     probeUrls.push(`${stripped.replace("localhost", "127.0.0.1")}/api/tags`);
   }
 
   const uniqueProbes = [...new Set(probeUrls)];
+  let lastError: Error | null = null;
   for (const pUrl of uniqueProbes) {
     try {
       const json = await getJson(pUrl, headers);
@@ -347,9 +381,14 @@ export async function fetchCustomProviderModels(
       if (ids.length > 0) {
         return ids;
       }
-    } catch {
-      // Continue probing other candidate paths
+    } catch (err: any) {
+      lastError = err instanceof Error ? err : new Error(String(err));
     }
+  }
+
+  // If unauthorized, throw auth error so UI accurately informs user
+  if (lastError && /401|403|unauthoriz|missing api key/i.test(lastError.message)) {
+    throw new Error(`Authentication required: ${lastError.message}`);
   }
 
   return [];
@@ -358,7 +397,12 @@ export async function fetchCustomProviderModels(
 /** True for built-in or custom providers that support model discovery */
 export function canListProviderModels(providerId: string): boolean {
   if (Object.prototype.hasOwnProperty.call(SOURCES, providerId)) return true;
-  if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) return true;
+  if (
+    providerId.startsWith("custom-") ||
+    providerId.startsWith("stt:custom-") ||
+    providerId.startsWith("custom-stt-")
+  )
+    return true;
   return false;
 }
 
@@ -439,7 +483,12 @@ async function listFromPublicCatalog(providerId: string): Promise<string[]> {
 }
 
 export function isProviderListReady(providerId: string, vars: Record<string, string>): boolean {
-  if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) return true;
+  if (
+    providerId.startsWith("custom-") ||
+    providerId.startsWith("stt:custom-") ||
+    providerId.startsWith("custom-stt-")
+  )
+    return true;
   const src = SOURCES[providerId];
   return !!src && src.ready(vars || {});
 }
@@ -453,14 +502,30 @@ export async function listProviderModels(
   providerId: string,
   ctx: ModelListContext
 ): Promise<{ ids: string[]; official: boolean }> {
-  if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) {
-    const key =
+  if (
+    providerId.startsWith("custom-") ||
+    providerId.startsWith("stt:custom-") ||
+    providerId.startsWith("custom-stt-")
+  ) {
+    let key =
       ctx.vars?.api_key ||
       ctx.vars?.API_KEY ||
       ctx.vars?.apiKey ||
       Object.entries(ctx.vars || {}).find(([k]) => /key|token|secret/i.test(k))?.[1];
+
+    if (!key) {
+      if (providerId.startsWith("stt:") || providerId.startsWith("custom-stt-")) {
+        const rawId = providerId.replace(/^stt:/, "");
+        const stored = getCustomSttProviders().find((p) => p.id === rawId);
+        if (stored?.apiKey) key = stored.apiKey;
+      } else {
+        const stored = getCustomAiProviders().find((p) => p.id === providerId);
+        if (stored?.apiKey) key = stored.apiKey;
+      }
+    }
+
     const ids = await fetchCustomProviderModels(ctx.curl, key);
-    if (providerId.startsWith("stt:")) {
+    if (providerId.startsWith("stt:") || providerId.startsWith("custom-stt-")) {
       const sttMatches = ids.filter((id) => /whisper|transcri|audio|stt|speech|scribe/i.test(id));
       if (sttMatches.length > 0) {
         const others = ids.filter((id) => !/whisper|transcri|audio|stt|speech|scribe/i.test(id));

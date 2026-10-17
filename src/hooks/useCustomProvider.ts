@@ -11,7 +11,7 @@ import {
 } from "@/lib";
 
 export function useCustomAiProviders() {
-  const { loadData } = useApp();
+  const { loadData, selectedAIProvider, onSetSelectedAIProvider } = useApp();
   const [showForm, setShowForm] = useState(false);
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [formData, setFormData] = useState<TYPE_PROVIDER>({
@@ -38,7 +38,7 @@ export function useCustomAiProviders() {
       ...provider,
     });
     setEditingProvider(providerId);
-    setShowForm(!showForm);
+    setShowForm(true);
     setErrors({});
   };
 
@@ -114,6 +114,16 @@ export function useCustomAiProviders() {
         });
 
         if (success) {
+          // If this provider is currently selected, keep active selection in sync
+          if (selectedAIProvider?.provider === editingProvider) {
+            onSetSelectedAIProvider({
+              ...selectedAIProvider,
+              variables: {
+                ...selectedAIProvider.variables,
+                api_key: dataToSave.apiKey || "",
+              },
+            });
+          }
           setEditingProvider(null);
           setShowForm(false);
           setFormData({
@@ -143,6 +153,11 @@ export function useCustomAiProviders() {
 
         const saved = addCustomAiProvider(newProvider);
         if (saved) {
+          // Auto-select newly created provider
+          onSetSelectedAIProvider({
+            provider: saved.id,
+            variables: saved.apiKey ? { api_key: saved.apiKey } : {},
+          });
           setShowForm(false);
           setFormData({
             id: "",

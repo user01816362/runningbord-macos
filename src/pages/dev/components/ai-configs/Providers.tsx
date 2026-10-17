@@ -2,7 +2,7 @@ import { Button, Header, Input, Selection, TextInput } from "@/components";
 import { ModelPicker } from "./ModelPicker";
 import { ProviderProfiles } from "../ProviderProfiles";
 import { canListProviderModels } from "@/lib/functions/models.function";
-import { readKeychainFailed } from "@/lib/storage";
+import { readKeychainFailed, updateCustomAiProvider } from "@/lib/storage";
 import { STORAGE_KEYS } from "@/config";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
@@ -44,23 +44,39 @@ export const Providers = ({
     }
   }, [selectedAIProvider?.provider]);
 
+  const currentProvider = allAiProviders?.find(
+    (p) => p?.id === selectedAIProvider?.provider
+  );
+
   const findKeyAndValue = (key: string) => {
     return variables?.find((v) => v?.key === key);
   };
 
   const getApiKeyValue = () => {
     const apiKeyVar = findKeyAndValue("api_key");
-    const currentProvider = allAiProviders?.find(
-      (p) => p?.id === selectedAIProvider?.provider
-    );
-    if (!apiKeyVar || !selectedAIProvider?.variables) {
-      return currentProvider?.apiKey || "";
+    const varKey = apiKeyVar?.key || "api_key";
+    if (selectedAIProvider?.variables && varKey in selectedAIProvider.variables) {
+      return selectedAIProvider.variables[varKey] ?? "";
     }
-    return (
-      selectedAIProvider?.variables?.[apiKeyVar.key] ||
-      currentProvider?.apiKey ||
-      ""
-    );
+    return currentProvider?.apiKey || "";
+  };
+
+  const handleApiKeyChange = (newValue: string) => {
+    const apiKeyVar = findKeyAndValue("api_key");
+    const varKey = apiKeyVar?.key || "api_key";
+    if (!selectedAIProvider) return;
+
+    onSetSelectedAIProvider({
+      ...selectedAIProvider,
+      variables: {
+        ...selectedAIProvider.variables,
+        [varKey]: newValue,
+      },
+    });
+
+    if (currentProvider?.isCustom && currentProvider.id) {
+      updateCustomAiProvider(currentProvider.id, { apiKey: newValue });
+    }
   };
 
   const isApiKeyEmpty = () => {
@@ -110,8 +126,12 @@ export const Providers = ({
       {localSelectedProvider ? (
         <Header
           title={`Method: ${
-            localSelectedProvider?.method || "Invalid"
-          }, Endpoint: ${localSelectedProvider?.url || "Invalid"}`}
+            localSelectedProvider?.method || "POST"
+          }, Endpoint: ${
+            currentProvider?.isCustom && currentProvider?.baseUrl
+              ? currentProvider.baseUrl
+              : localSelectedProvider?.url || "Invalid"
+          }`}
           description={`If you want to use different url or method, you can always create a custom provider.`}
         />
       ) : null}
@@ -126,15 +146,13 @@ export const Providers = ({
         </div>
       ) : null}
 
-      {findKeyAndValue("api_key") ? (
+      {(findKeyAndValue("api_key") || currentProvider?.isCustom) ? (
         <div className="space-y-2">
           <Header
             title="API Key"
             description={`Enter your ${
-              allAiProviders?.find(
-                (p) => p?.id === selectedAIProvider?.provider
-              )?.isCustom
-                ? "Custom Provider"
+              currentProvider?.isCustom
+                ? currentProvider.name || "Custom Provider"
                 : selectedAIProvider?.provider
             } API key to authenticate and access AI models. Your key is kept in the system keychain and only sent to this provider.`}
           />
@@ -146,29 +164,12 @@ export const Providers = ({
                 placeholder="**********"
                 value={getApiKeyValue()}
                 onChange={(value) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
-                  if (!apiKeyVar || !selectedAIProvider) return;
-
-                  onSetSelectedAIProvider({
-                    ...selectedAIProvider,
-                    variables: {
-                      ...selectedAIProvider.variables,
-                      [apiKeyVar.key]:
-                        typeof value === "string" ? value : value.target.value,
-                    },
-                  });
+                  handleApiKeyChange(
+                    typeof value === "string" ? value : value.target.value
+                  );
                 }}
                 onKeyDown={(e) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
-                  if (!apiKeyVar || !selectedAIProvider) return;
-
-                  onSetSelectedAIProvider({
-                    ...selectedAIProvider,
-                    variables: {
-                      ...selectedAIProvider.variables,
-                      [apiKeyVar.key]: (e.target as HTMLInputElement).value,
-                    },
-                  });
+                  handleApiKeyChange((e.target as HTMLInputElement).value);
                 }}
                 disabled={false}
                 className="flex-1 h-11 border-1 border-input/50 focus:border-primary/50 transition-colors"
@@ -176,17 +177,7 @@ export const Providers = ({
               {isApiKeyEmpty() ? (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
-                    if (!apiKeyVar || !selectedAIProvider || isApiKeyEmpty())
-                      return;
-
-                    onSetSelectedAIProvider({
-                      ...selectedAIProvider,
-                      variables: {
-                        ...selectedAIProvider.variables,
-                        [apiKeyVar.key]: getApiKeyValue(),
-                      },
-                    });
+                    handleApiKeyChange(getApiKeyValue());
                   }}
                   disabled={isApiKeyEmpty()}
                   size="icon"
@@ -198,16 +189,7 @@ export const Providers = ({
               ) : (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
-                    if (!apiKeyVar || !selectedAIProvider) return;
-
-                    onSetSelectedAIProvider({
-                      ...selectedAIProvider,
-                      variables: {
-                        ...selectedAIProvider.variables,
-                        [apiKeyVar.key]: "",
-                      },
-                    });
+                    handleApiKeyChange("");
                   }}
                   size="icon"
                   variant="destructive"
@@ -275,8 +257,8 @@ export const Providers = ({
             );
           })}
 
-        {/* Fast Model / Slow Model fields (only when provider has a MODEL variable) */}
-        {findKeyAndValue("model") ? (
+        {/* Fast Model / Slow Model fields (when provider has a MODEL variable or is custom) */}
+        {(findKeyAndValue("model") || currentProvider?.isCustom) ? (
           <>
             {(() => {
               const provider = allAiProviders?.find(

@@ -102,6 +102,34 @@ ${authHeader}  -d '{
   }'`;
 }
 
+export function normalizeGeminiEndpoint(baseUrl: string): string {
+  const clean = baseUrl.trim().replace(/\/+$/, "");
+  const stripped = clean
+    .replace(/\/models\/.*$/, "")
+    .replace(/\/models$/, "")
+    .replace(/\/(v1beta|v1)$/, "");
+  return `${stripped}/v1beta/models/{{MODEL}}:streamGenerateContent?alt=sse&key={{API_KEY}}`;
+}
+
+export function generateGeminiCurl(baseUrl: string): string {
+  const endpoint = normalizeGeminiEndpoint(baseUrl);
+  return `curl "${endpoint}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [
+        {"text": "{{TEXT}}"},
+        {"inlineData": {"mimeType": "image/png", "data": "{{IMAGE}}"}}
+      ]}
+    ],
+    "systemInstruction": {
+      "parts": [
+        {"text": "{{SYSTEM_PROMPT}}"}
+      ]
+    }
+  }'`;
+}
+
 export function normalizeSttEndpoint(baseUrl: string): string {
   const clean = baseUrl.trim().replace(/\/+$/, "");
   if (clean.endsWith("/audio/transcriptions")) {

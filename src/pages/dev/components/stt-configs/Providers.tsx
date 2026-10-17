@@ -2,6 +2,8 @@ import { Button, Header, Input, Selection, TextInput } from "@/components";
 import { ModelPicker } from "../ai-configs/ModelPicker";
 import { ProviderProfiles } from "../ProviderProfiles";
 import { canListProviderModels } from "@/lib/functions/models.function";
+import { readKeychainFailed, updateCustomSttProvider } from "@/lib/storage";
+import { STORAGE_KEYS } from "@/config";
 import { UseSettingsReturn } from "@/types";
 import curl2Json, { ResultJSON } from "@bany/curl-to-json";
 import { KeyIcon, TrashIcon } from "lucide-react";
@@ -15,6 +17,11 @@ export const Providers = ({
 }: UseSettingsReturn) => {
   const [localSelectedProvider, setLocalSelectedProvider] =
     useState<ResultJSON | null>(null);
+  const [keychainBlocked, setKeychainBlocked] = useState(false);
+
+  useEffect(() => {
+    setKeychainBlocked(readKeychainFailed(STORAGE_KEYS.SELECTED_STT_PROVIDER));
+  }, [selectedSttProvider?.provider]);
 
   useEffect(() => {
     if (selectedSttProvider?.provider) {
@@ -37,23 +44,39 @@ export const Providers = ({
     }
   }, [selectedSttProvider?.provider]);
 
+  const currentProvider = allSttProviders?.find(
+    (p) => p?.id === selectedSttProvider?.provider
+  );
+
   const findKeyAndValue = (key: string) => {
     return sttVariables?.find((v) => v?.key === key);
   };
 
   const getApiKeyValue = () => {
     const apiKeyVar = findKeyAndValue("api_key");
-    const currentProvider = allSttProviders?.find(
-      (p) => p?.id === selectedSttProvider?.provider
-    );
-    if (!apiKeyVar || !selectedSttProvider?.variables) {
-      return currentProvider?.apiKey || "";
+    const varKey = apiKeyVar?.key || "api_key";
+    if (selectedSttProvider?.variables && varKey in selectedSttProvider.variables) {
+      return selectedSttProvider.variables[varKey] ?? "";
     }
-    return (
-      selectedSttProvider?.variables?.[apiKeyVar.key] ||
-      currentProvider?.apiKey ||
-      ""
-    );
+    return currentProvider?.apiKey || "";
+  };
+
+  const handleApiKeyChange = (newValue: string) => {
+    const apiKeyVar = findKeyAndValue("api_key");
+    const varKey = apiKeyVar?.key || "api_key";
+    if (!selectedSttProvider) return;
+
+    onSetSelectedSttProvider({
+      ...selectedSttProvider,
+      variables: {
+        ...selectedSttProvider.variables,
+        [varKey]: newValue,
+      },
+    });
+
+    if (currentProvider?.isCustom && currentProvider.id) {
+      updateCustomSttProvider(currentProvider.id, { apiKey: newValue });
+    }
   };
 
   const isApiKeyEmpty = () => {
@@ -104,22 +127,33 @@ export const Providers = ({
       {localSelectedProvider ? (
         <Header
           title={`Method: ${
-            localSelectedProvider?.method || "Invalid"
-          }, Endpoint: ${localSelectedProvider?.url || "Invalid"}`}
+            localSelectedProvider?.method || "POST"
+          }, Endpoint: ${
+            currentProvider?.isCustom && currentProvider?.baseUrl
+              ? currentProvider.baseUrl
+              : localSelectedProvider?.url || "Invalid"
+          }`}
           description={`If you want to use different url or method, you can always create a custom provider.`}
         />
       ) : null}
-      {findKeyAndValue("api_key") ? (
+
+      {keychainBlocked ? (
+        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2">
+          <p className="text-xs font-medium text-destructive">
+            System keychain blocked — your API key works for this session only
+            and must be re-entered after restart. Provider and model
+            are still saved. Allow Keychain access to persist the key securely.
+          </p>
+        </div>
+      ) : null}
+
+      {(findKeyAndValue("api_key") || currentProvider?.isCustom) ? (
         <div className="space-y-2">
           <Header
             title="API Key"
             description={`Enter your ${
-              allSttProviders?.find(
-                (p) => p?.id === selectedSttProvider?.provider
-              )?.name ||
-              (allSttProviders?.find(
-                (p) => p?.id === selectedSttProvider?.provider
-              )?.isCustom
+              currentProvider?.name ||
+              (currentProvider?.isCustom
                 ? "Custom STT Provider"
                 : selectedSttProvider?.provider)
             } API key to authenticate and access STT models. Your key is kept in the system keychain and only sent to this provider.`}
@@ -132,29 +166,12 @@ export const Providers = ({
                 placeholder="**********"
                 value={getApiKeyValue()}
                 onChange={(value) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
-                  if (!apiKeyVar || !selectedSttProvider) return;
-
-                  onSetSelectedSttProvider({
-                    ...selectedSttProvider,
-                    variables: {
-                      ...selectedSttProvider.variables,
-                      [apiKeyVar.key]:
-                        typeof value === "string" ? value : value.target.value,
-                    },
-                  });
+                  handleApiKeyChange(
+                    typeof value === "string" ? value : value.target.value
+                  );
                 }}
                 onKeyDown={(e) => {
-                  const apiKeyVar = findKeyAndValue("api_key");
-                  if (!apiKeyVar || !selectedSttProvider) return;
-
-                  onSetSelectedSttProvider({
-                    ...selectedSttProvider,
-                    variables: {
-                      ...selectedSttProvider.variables,
-                      [apiKeyVar.key]: (e.target as HTMLInputElement).value,
-                    },
-                  });
+                  handleApiKeyChange((e.target as HTMLInputElement).value);
                 }}
                 disabled={false}
                 className="flex-1 h-11 border-1 border-input/50 focus:border-primary/50 transition-colors"
@@ -162,17 +179,7 @@ export const Providers = ({
               {isApiKeyEmpty() ? (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
-                    if (!apiKeyVar || !selectedSttProvider || isApiKeyEmpty())
-                      return;
-
-                    onSetSelectedSttProvider({
-                      ...selectedSttProvider,
-                      variables: {
-                        ...selectedSttProvider.variables,
-                        [apiKeyVar.key]: getApiKeyValue(),
-                      },
-                    });
+                    handleApiKeyChange(getApiKeyValue());
                   }}
                   disabled={isApiKeyEmpty()}
                   size="icon"
@@ -184,16 +191,7 @@ export const Providers = ({
               ) : (
                 <Button
                   onClick={() => {
-                    const apiKeyVar = findKeyAndValue("api_key");
-                    if (!apiKeyVar || !selectedSttProvider) return;
-
-                    onSetSelectedSttProvider({
-                      ...selectedSttProvider,
-                      variables: {
-                        ...selectedSttProvider.variables,
-                        [apiKeyVar.key]: "",
-                      },
-                    });
+                    handleApiKeyChange("");
                   }}
                   size="icon"
                   variant="destructive"
@@ -262,9 +260,10 @@ export const Providers = ({
           })}
         {(() => {
           const modelVar = (sttVariables || []).find((v) => v?.key === "model");
-          if (!modelVar || !selectedSttProvider?.provider) return null;
+          if (!modelVar && !currentProvider?.isCustom) return null;
+          if (!selectedSttProvider?.provider) return null;
           const sttId = `stt:${selectedSttProvider.provider}`;
-          const provider = allSttProviders?.find((p) => p?.id === selectedSttProvider?.provider);
+          const provider = currentProvider;
           const setModel = (id: string) => {
             if (!selectedSttProvider) return;
             onSetSelectedSttProvider({

@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import {
   validateBaseUrl,
   generateOpenAICurl,
+  generateGeminiCurl,
 } from "@/lib";
 import { fetchCustomProviderModels } from "@/lib/functions/models.function";
 
@@ -34,7 +35,7 @@ const LOCAL_PRESETS = [
   {
     label: "EasyCLIProxyAPI (Port 8317)",
     name: "EasyCLIProxyAPI",
-    url: "http://127.0.0.1:8317/v1",
+    url: "http://127.0.0.1:8317",
   },
   {
     label: "Ollama (Port 11434)",
@@ -44,12 +45,12 @@ const LOCAL_PRESETS = [
   {
     label: "LM Studio (Port 1234)",
     name: "LM Studio",
-    url: "http://127.0.0.1:1234/v1",
+    url: "http://127.0.0.1:1234",
   },
   {
     label: "vLLM / LocalAI (Port 8000)",
     name: "LocalAI / vLLM",
-    url: "http://127.0.0.1:8000/v1",
+    url: "http://127.0.0.1:8000",
   },
   {
     label: "Custom Local Endpoint",
@@ -80,6 +81,7 @@ export const CreateEditProvider = ({
   const [providerName, setProviderName] = useState("");
   const [baseUrlInput, setBaseUrlInput] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
+  const [protocol, setProtocol] = useState<"openai" | "gemini">("openai");
 
   // Probe testing state
   const [isTesting, setIsTesting] = useState(false);
@@ -92,6 +94,12 @@ export const CreateEditProvider = ({
   // Sync state when editing a provider
   useEffect(() => {
     if (editingProvider && formData) {
+      const isGemini =
+        formData.protocol === "gemini" ||
+        formData.curl?.includes("v1beta") ||
+        formData.curl?.includes("streamGenerateContent");
+      setProtocol(isGemini ? "gemini" : "openai");
+
       if (formData.baseUrl || !formData.curl?.trim().startsWith("curl")) {
         setSetupMode("baseUrl");
         setProviderName(formData.name || "");
@@ -110,6 +118,7 @@ export const CreateEditProvider = ({
       setProviderName("");
       setBaseUrlInput("");
       setApiKeyInput("");
+      setProtocol("openai");
       setTestResult({ status: "idle", message: "" });
     }
   }, [editingProvider, showForm]);
@@ -153,7 +162,7 @@ export const CreateEditProvider = ({
       } else {
         setTestResult({
           status: "success",
-          message: `Connected successfully in ${latencyMs}ms! (Server reachable, standard OpenAI-compatible completions ready)`,
+          message: `Connected successfully in ${latencyMs}ms! (Server reachable, standard completions ready)`,
           models: [],
         });
       }
@@ -180,19 +189,33 @@ export const CreateEditProvider = ({
 
       const cleanUrl = urlValidation.normalizedUrl;
       const effectiveName = providerName.trim() || `Local AI (${cleanUrl})`;
-      const generatedCurl = generateOpenAICurl(cleanUrl, !!apiKeyInput.trim());
+      const generatedCurl =
+        protocol === "gemini"
+          ? generateGeminiCurl(cleanUrl)
+          : generateOpenAICurl(cleanUrl, !!apiKeyInput.trim());
 
       handleSave({
         name: effectiveName,
         baseUrl: cleanUrl,
         apiKey: apiKeyInput.trim(),
-        protocol: "openai",
+        protocol,
         curl: generatedCurl,
         streaming: true,
-        responseContentPath: "choices[0].delta.content",
+        responseContentPath:
+          protocol === "gemini"
+            ? "candidates[0].content.parts[0].text"
+            : "choices[0].delta.content",
       });
     } else {
-      handleSave();
+      handleSave({
+        name: providerName.trim() || formData.name,
+        baseUrl: baseUrlInput.trim() || formData.baseUrl,
+        apiKey: apiKeyInput.trim(),
+        protocol: protocol || formData.protocol || "openai",
+        curl: formData.curl,
+        streaming: formData.streaming,
+        responseContentPath: formData.responseContentPath,
+      });
     }
   };
 
@@ -268,6 +291,22 @@ export const CreateEditProvider = ({
                 />
               </div>
 
+              <div className="space-y-1">
+                <Header
+                  title="Protocol"
+                  description="Choose standard OpenAI (/v1/chat/completions) or Google Gemini / Antigravity (/v1beta)."
+                />
+                <Selection
+                  options={[
+                    { label: "OpenAI Compatible (/v1)", value: "openai" },
+                    { label: "Google Gemini / Antigravity (/v1beta)", value: "gemini" },
+                  ]}
+                  value={protocol}
+                  placeholder="Select Protocol"
+                  onChange={(val) => setProtocol(val as "openai" | "gemini")}
+                />
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Header
@@ -289,7 +328,7 @@ export const CreateEditProvider = ({
                     description="Host and port (e.g. http://127.0.0.1:8317)."
                   />
                   <TextInput
-                    placeholder="http://127.0.0.1:8317/v1"
+                    placeholder="http://127.0.0.1:8317"
                     value={baseUrlInput}
                     onChange={(val) => {
                       setBaseUrlInput(typeof val === "string" ? val : "");
@@ -375,6 +414,51 @@ export const CreateEditProvider = ({
                     onChange={(value) => handleAutoFill(value)}
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Header
+                    title="Provider Name"
+                    description="A friendly label."
+                  />
+                  <TextInput
+                    placeholder="Custom AI Provider"
+                    value={providerName}
+                    onChange={(val) =>
+                      setProviderName(typeof val === "string" ? val : "")
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <Header
+                    title="Base URL / Host"
+                    description="Host and port (e.g. http://127.0.0.1:8317)."
+                  />
+                  <TextInput
+                    placeholder="http://127.0.0.1:8317"
+                    value={baseUrlInput}
+                    onChange={(val) =>
+                      setBaseUrlInput(typeof val === "string" ? val : "")
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <Header
+                  title="API Key"
+                  description="Saved directly into your custom provider definition."
+                />
+                <TextInput
+                  type="password"
+                  placeholder="API Key / Token"
+                  value={apiKeyInput}
+                  onChange={(val) =>
+                    setApiKeyInput(typeof val === "string" ? val : "")
+                  }
+                />
               </div>
 
               <div className="space-y-1">
