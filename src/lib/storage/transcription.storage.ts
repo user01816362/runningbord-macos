@@ -30,6 +30,10 @@ export interface TranscriptionConfig {
   autoAnswerDelayMs: number;
   /** Write meeting notes from the live transcript when Meeting mode is turned off. */
   meetingNotes: boolean;
+  /** Show live audio activity & buffer filling status */
+  showAudioActivity: boolean;
+  /** Show live transcript preview in overlay */
+  showLivePreview: boolean;
 }
 
 export const TRANSCRIPT_WINDOWS = [30, 60, 120, 300, 600];
@@ -47,6 +51,8 @@ export const DEFAULT_TRANSCRIPTION_CONFIG: TranscriptionConfig = {
   autoAnswerScreenshot: false,
   autoAnswerDelayMs: 2000,
   meetingNotes: false,
+  showAudioActivity: true,
+  showLivePreview: true,
 };
 
 const CHANGE_EVENT = "transcription-config-changed";
@@ -87,6 +93,8 @@ export const getTranscriptionConfig = (): TranscriptionConfig => {
         ? parsed.autoAnswerDelayMs
         : DEFAULT_TRANSCRIPTION_CONFIG.autoAnswerDelayMs,
       meetingNotes: parsed.meetingNotes === true,
+      showAudioActivity: parsed.showAudioActivity !== false,
+      showLivePreview: parsed.showLivePreview !== false,
     };
   } catch {
     return DEFAULT_TRANSCRIPTION_CONFIG;

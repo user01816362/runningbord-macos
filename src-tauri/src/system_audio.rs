@@ -460,6 +460,8 @@ pub struct SystemAudioStatus {
     pub recording: bool,
     pub buffer_seconds: u32,
     pub supported: bool,
+    pub current_seconds: f32,
+    pub is_audio_active: bool,
 }
 
 /// Start the system audio daemon. On non-macOS or if tap fails, returns error.
@@ -546,17 +548,33 @@ pub async fn system_audio_is_recording(
     Ok(state.is_recording())
 }
 
-/// Return status (recording, buffer_seconds, supported).
+/// Return status (recording, buffer_seconds, supported, current_seconds, is_audio_active).
 #[tauri::command]
 pub async fn system_audio_status(
     state: tauri::State<'_, Arc<SystemAudioState>>,
 ) -> Result<SystemAudioStatus, String> {
     let logical_len: usize = *state.logical_len.lock().map_err(|e| e.to_string())?;
     let buffer_seconds = (logical_len as u32) / (OUTPUT_SAMPLE_RATE * OUTPUT_CHANNELS as u32);
+    let captured = state.written_samples.load(Ordering::Acquire);
+    let current_samples = captured.min(logical_len);
+    let current_seconds = (current_samples as f32) / (OUTPUT_SAMPLE_RATE as f32 * OUTPUT_CHANNELS as f32);
+
+    let is_audio_active = if state.is_recording() && current_samples > 0 {
+        if let Ok(samples) = state.recent_samples(Some(2)) {
+            silence_ratio(&samples) < 0.90
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+
     Ok(SystemAudioStatus {
         recording: state.is_recording(),
         buffer_seconds,
         supported: cfg!(any(target_os = "macos", target_os = "windows")),
+        current_seconds,
+        is_audio_active,
     })
 }
 

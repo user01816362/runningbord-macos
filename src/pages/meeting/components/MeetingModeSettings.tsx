@@ -8,7 +8,7 @@ export const MeetingModeSettings = ({
   handleSystemAudioDaemonEnabledChange,
   handleSystemAudioDaemonBufferSecondsChange,
 }: UseSettingsReturn) => {
-  const [transcription] = useTranscriptionConfig();
+  const [transcription, setTranscription] = useTranscriptionConfig();
   const liveTranscription = transcription.engine === "local" && transcription.live;
 
   const [bufferInput, setBufferInput] = useState(String(systemAudioDaemonConfig.bufferSeconds ?? 30));
@@ -28,6 +28,32 @@ export const MeetingModeSettings = ({
         <Switch
           checked={systemAudioDaemonConfig.enabled}
           onCheckedChange={handleSystemAudioDaemonEnabledChange}
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-input/50 p-3">
+        <div>
+          <Label className="text-sm font-medium">Live audio activity & buffer status</Label>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Shows live buffer fill duration (e.g. 30s ready) and audio activity waveform on the meeting button.
+          </p>
+        </div>
+        <Switch
+          checked={transcription.showAudioActivity !== false}
+          onCheckedChange={(checked) => setTranscription({ showAudioActivity: checked })}
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border border-input/50 p-3">
+        <div>
+          <Label className="text-sm font-medium">Live transcript preview in overlay</Label>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Displays the last heard sentence directly in the overlay so you can verify what was captured.
+          </p>
+        </div>
+        <Switch
+          checked={transcription.showLivePreview !== false}
+          onCheckedChange={(checked) => setTranscription({ showLivePreview: checked })}
         />
       </div>
 
