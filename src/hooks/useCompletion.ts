@@ -656,14 +656,18 @@ export const useCompletion = () => {
       try {
         const messageHistory = buildRequestHistory(userMessage);
         let fullResponse = "";
+        const previousResponse = latestStateRef.current.response;
+        const isAutoAnswer = displayPrompt.startsWith("Auto-answer:");
 
         setState((prev) => ({
           ...prev,
           input: displayPrompt,
           isLoading: true,
           error: null,
-          response: "",
+          response: isAutoAnswer ? prev.response : "",
         }));
+
+        let hasReceivedChunk = false;
 
         for await (const chunk of fetchAIResponse({
           provider,
@@ -679,12 +683,22 @@ export const useCompletion = () => {
         })) {
           if (currentRequestIdRef.current !== requestId || signal.aborted) return;
           fullResponse += chunk;
-          setState((prev) => ({ ...prev, response: prev.response + chunk }));
+          if (!hasReceivedChunk) {
+            hasReceivedChunk = true;
+            setState((prev) => ({ ...prev, response: chunk }));
+          } else {
+            setState((prev) => ({ ...prev, response: prev.response + chunk }));
+          }
         }
 
         if (currentRequestIdRef.current !== requestId || signal.aborted) return;
         if (discardIf?.(splitFollowUps(fullResponse).answer)) {
-          setState((prev) => ({ ...prev, isLoading: false, input: "", response: "" }));
+          setState((prev) => ({
+            ...prev,
+            isLoading: false,
+            input: prev.input.startsWith("Auto-answer:") ? "" : prev.input,
+            response: prev.input.startsWith("Auto-answer:") ? previousResponse : prev.response,
+          }));
           return;
         }
         setState((prev) => ({ ...prev, isLoading: false }));
@@ -696,7 +710,11 @@ export const useCompletion = () => {
         }
       } catch (e: any) {
         if (currentRequestIdRef.current === requestId && !signal.aborted) {
-          setState((prev) => ({ ...prev, error: e.message || "An error occurred" }));
+          setState((prev) => ({
+            ...prev,
+            error: e.message || "An error occurred",
+            response: displayPrompt.startsWith("Auto-answer:") ? latestStateRef.current.response : prev.response,
+          }));
         }
       } finally {
         if (currentRequestIdRef.current === requestId && !signal.aborted) {
@@ -1008,8 +1026,9 @@ export const useCompletion = () => {
   const autoAnswerRef = useRef<(question: string, endedAt: number) => Promise<void>>(async () => {});
   autoAnswerRef.current = async (question: string, endedAt: number) => {
     const current = latestStateRef.current;
-    // Don't overwrite something the user is typing.
-    if (current.input.trim() && !current.isLoading) return;
+    // Don't overwrite if the user is actively typing their own manual prompt
+    const userIsTyping = Boolean(current.input.trim() && !current.input.startsWith("Auto-answer:"));
+    if (userIsTyping && !current.isLoading) return;
     if (current.isLoading || isScreenshotLoading || autoAnsweringRef.current) {
       queuedQuestionRef.current = question;
       queuedEndedAtRef.current = endedAt;
@@ -1027,10 +1046,14 @@ export const useCompletion = () => {
   };
 
   const answerQuestion = async (question: string, endedAt: number) => {
+    const current = latestStateRef.current;
+    const userIsTyping = Boolean(current.input.trim() && !current.input.startsWith("Auto-answer:"));
+    if (userIsTyping && !current.isLoading) return;
+
     const displayPrompt = `Auto-answer: ${question}`;
     const detectedAt = Date.now();
-    // Open the panel right away; the transcript and screenshot load meanwhile.
-    setState((prev) => ({ ...prev, input: displayPrompt, isLoading: true, error: null, response: "" }));
+    // Open the panel right away; retain previous response so it doesn't flash-blank or drop
+    setState((prev) => ({ ...prev, input: displayPrompt, isLoading: true, error: null, response: prev.response }));
 
     const timed = async <T,>(work: Promise<T>) => {
       const started = performance.now();
@@ -1102,6 +1125,11 @@ export const useCompletion = () => {
 
   useEffect(() => {
     if (state.isLoading || autoAnsweringRef.current || !queuedQuestionRef.current) return;
+    const userIsTyping = Boolean(latestStateRef.current.input.trim() && !latestStateRef.current.input.startsWith("Auto-answer:"));
+    if (userIsTyping) {
+      queuedQuestionRef.current = null;
+      return;
+    }
     const next = queuedQuestionRef.current;
     queuedQuestionRef.current = null;
     void autoAnswerRef.current(next, queuedEndedAtRef.current);

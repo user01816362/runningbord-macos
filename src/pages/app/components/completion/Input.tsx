@@ -97,7 +97,7 @@ export const Input = ({
       <Popover
         open={isPopoverOpen}
         onOpenChange={(open) => {
-          if (!open && !isLoading && !keepEngaged) {
+          if (!open && !isLoading && !keepEngaged && !response) {
             reset();
           }
         }}
@@ -164,6 +164,18 @@ export const Input = ({
           side="bottom"
           className="w-screen p-0 border shadow-lg overflow-hidden"
           sideOffset={8}
+          onPointerDownOutside={(e) => {
+            // Prevent outside clicks from wiping or closing active response while reading/working
+            if (response && !isLoading) {
+              e.preventDefault();
+            }
+          }}
+          onEscapeKeyDown={() => {
+            if (!isLoading) {
+              setKeepEngaged(false);
+              reset(true);
+            }
+          }}
         >
           <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
             <div className="flex flex-row gap-1 items-center">
