@@ -301,7 +301,7 @@ export const CreateEditProvider = ({
                     { label: "OpenAI Compatible (/v1)", value: "openai" },
                     { label: "Google Gemini / Antigravity (/v1beta)", value: "gemini" },
                   ]}
-                  value={protocol}
+                  selected={protocol}
                   placeholder="Select Protocol"
                   onChange={(val) => setProtocol(val as "openai" | "gemini")}
                 />

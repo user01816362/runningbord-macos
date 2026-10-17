@@ -152,7 +152,7 @@ export function useCustomAiProviders() {
         };
 
         const saved = addCustomAiProvider(newProvider);
-        if (saved) {
+        if (saved && saved.id) {
           // Auto-select newly created provider
           onSetSelectedAIProvider({
             provider: saved.id,

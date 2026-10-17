@@ -158,7 +158,7 @@ export function useCustomSttProviders() {
         };
 
         const saved = addCustomSttProvider(newProvider);
-        if (saved) {
+        if (saved && saved.id) {
           // Auto-select newly created provider
           onSetSelectedSttProvider({
             provider: saved.id,
