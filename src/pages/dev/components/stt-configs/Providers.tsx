@@ -24,6 +24,15 @@ export const Providers = ({
       if (provider) {
         const json = curl2Json(provider?.curl);
         setLocalSelectedProvider(json as ResultJSON);
+        if (provider.apiKey && !selectedSttProvider.variables?.api_key) {
+          onSetSelectedSttProvider({
+            ...selectedSttProvider,
+            variables: {
+              ...selectedSttProvider.variables,
+              api_key: provider.apiKey,
+            },
+          });
+        }
       }
     }
   }, [selectedSttProvider?.provider]);
@@ -34,8 +43,17 @@ export const Providers = ({
 
   const getApiKeyValue = () => {
     const apiKeyVar = findKeyAndValue("api_key");
-    if (!apiKeyVar || !selectedSttProvider?.variables) return "";
-    return selectedSttProvider?.variables?.[apiKeyVar.key] || "";
+    const currentProvider = allSttProviders?.find(
+      (p) => p?.id === selectedSttProvider?.provider
+    );
+    if (!apiKeyVar || !selectedSttProvider?.variables) {
+      return currentProvider?.apiKey || "";
+    }
+    return (
+      selectedSttProvider?.variables?.[apiKeyVar.key] ||
+      currentProvider?.apiKey ||
+      ""
+    );
   };
 
   const isApiKeyEmpty = () => {
@@ -65,9 +83,10 @@ export const Providers = ({
           })}
           placeholder="Choose your STT provider"
           onChange={(value) => {
+            const chosen = allSttProviders?.find((p) => p?.id === value);
             onSetSelectedSttProvider({
               provider: value,
-              variables: {},
+              variables: chosen?.apiKey ? { api_key: chosen.apiKey } : {},
             });
           }}
         />
@@ -255,6 +274,12 @@ export const Providers = ({
           };
           if (canListProviderModels(sttId)) {
             const apiKeyVar = findKeyAndValue("api_key");
+            const effectiveKey =
+              (apiKeyVar && selectedSttProvider.variables
+                ? selectedSttProvider.variables[apiKeyVar.key]
+                : selectedSttProvider.variables?.api_key) ||
+              provider?.apiKey ||
+              "";
             return (
               <ModelPicker
                 key={sttId}
@@ -263,9 +288,12 @@ export const Providers = ({
                   provider?.name ||
                   (provider?.isCustom ? "Custom STT Provider" : selectedSttProvider.provider)
                 }
-                apiKey={apiKeyVar && selectedSttProvider.variables ? selectedSttProvider.variables[apiKeyVar.key] || "" : ""}
+                apiKey={effectiveKey}
                 curl={provider?.curl || ""}
-                variables={selectedSttProvider?.variables || {}}
+                variables={{
+                  api_key: effectiveKey,
+                  ...(selectedSttProvider?.variables || {}),
+                }}
                 value={selectedSttProvider?.variables?.model || ""}
                 title="STT Model *"
                 slot={sttId}

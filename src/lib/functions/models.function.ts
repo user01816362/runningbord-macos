@@ -302,9 +302,20 @@ export async function fetchCustomProviderModels(
     cleanUrl = `http://${cleanUrl}`;
   }
 
+  // Resolve API key from argument or from curl Authorization header if present
+  let resolvedKey = apiKey?.trim();
+  if (!resolvedKey) {
+    const authMatch =
+      baseUrlOrCurl.match(/-H\s+['"]Authorization:\s*Bearer\s+([^'"]+)['"]/i) ||
+      baseUrlOrCurl.match(/Authorization:\s*Bearer\s+([^\s'"\\]+)/i);
+    if (authMatch && authMatch[1] && !authMatch[1].includes("{{")) {
+      resolvedKey = authMatch[1].trim();
+    }
+  }
+
   const headers: Record<string, string> = { Accept: "application/json, text/plain, */*" };
-  if (apiKey && apiKey.trim()) {
-    headers["Authorization"] = `Bearer ${apiKey.trim()}`;
+  if (resolvedKey) {
+    headers["Authorization"] = `Bearer ${resolvedKey}`;
   }
 
   const stripped = cleanUrl
@@ -443,7 +454,12 @@ export async function listProviderModels(
   ctx: ModelListContext
 ): Promise<{ ids: string[]; official: boolean }> {
   if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) {
-    const ids = await fetchCustomProviderModels(ctx.curl, ctx.vars?.api_key);
+    const key =
+      ctx.vars?.api_key ||
+      ctx.vars?.API_KEY ||
+      ctx.vars?.apiKey ||
+      Object.entries(ctx.vars || {}).find(([k]) => /key|token|secret/i.test(k))?.[1];
+    const ids = await fetchCustomProviderModels(ctx.curl, key);
     if (providerId.startsWith("stt:")) {
       const sttMatches = ids.filter((id) => /whisper|transcri|audio|stt|speech|scribe/i.test(id));
       if (sttMatches.length > 0) {

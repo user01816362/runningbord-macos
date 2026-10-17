@@ -52,7 +52,7 @@ export async function fetchSTT(params: STTParams): Promise<string> {
     // }
 
     // Build variable map
-    const allVariables = {
+    const allVariables: Record<string, any> = {
       ...Object.fromEntries(
         Object.entries(selectedProvider.variables).map(([key, value]) => [
           key.toUpperCase(),
@@ -60,6 +60,13 @@ export async function fetchSTT(params: STTParams): Promise<string> {
         ])
       ),
     };
+
+    if (!allVariables.API_KEY && provider?.apiKey) {
+      allVariables.API_KEY = provider.apiKey;
+    }
+    if (!allVariables.MODEL && selectedProvider.variables?.model) {
+      allVariables.MODEL = selectedProvider.variables.model;
+    }
 
     // Prepare request
     let url = deepVariableReplacer(curlJson.url || "", allVariables);

@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { safeLocalStorage } from "./helper";
+import { getCustomAiProviders } from "./ai-providers";
+import { getCustomSttProviders } from "./stt-providers";
 
 /**
  * Selected AI / speech-to-text provider settings. Secret variables (API keys,
@@ -15,6 +17,8 @@ interface StoredSelection extends ProviderSelection {
   secretVariables?: string[];
   /** True when the last save could not reach the OS credential store. */
   keychainFailed?: boolean;
+  /** Robust fallback in case OS keychain access is blocked or unavailable */
+  fallbackSecrets?: Record<string, string>;
 }
 
 const SECRET_NAME = /key|token|secret|password|credential/i;
@@ -67,7 +71,16 @@ export async function persistProviderSelection(
   const variables = Object.fromEntries(
     Object.entries(selection.variables).filter(([name]) => !isSecretVariable(name))
   );
-  const stored: StoredSelection = { provider: selection.provider, variables, secretVariables, keychainFailed };
+  const fallbackSecrets = Object.fromEntries(
+    Object.entries(selection.variables).filter(([name, val]) => isSecretVariable(name) && !!val)
+  );
+  const stored: StoredSelection = {
+    provider: selection.provider,
+    variables,
+    secretVariables,
+    keychainFailed,
+    fallbackSecrets,
+  };
   safeLocalStorage.setItem(storageKey, JSON.stringify(stored));
 }
 
@@ -124,5 +137,29 @@ export async function loadProviderSelection(
       console.warn(`Couldn't read ${name} from the system keychain:`, error);
     }
   }
+
+  // Fallback: If keychain retrieval didn't restore secrets, read from fallbackSecrets
+  if (stored.fallbackSecrets) {
+    for (const [name, val] of Object.entries(stored.fallbackSecrets)) {
+      if (!variables[name] && val) {
+        variables[name] = val;
+      }
+    }
+  }
+
+  // Fallback: If api_key is still empty for a custom provider, read apiKey directly from provider
+  if (!variables["api_key"]) {
+    try {
+      const customProviders = kind === "ai" ? getCustomAiProviders() : getCustomSttProviders();
+      const customP = customProviders.find((p) => p.id === stored.provider);
+      if (customP?.apiKey) {
+        variables["api_key"] = customP.apiKey;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   return { provider: stored.provider, variables };
 }
+

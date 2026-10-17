@@ -31,6 +31,15 @@ export const Providers = ({
       if (provider) {
         const json = curl2Json(provider?.curl);
         setLocalSelectedProvider(json as ResultJSON);
+        if (provider.apiKey && !selectedAIProvider.variables?.api_key) {
+          onSetSelectedAIProvider({
+            ...selectedAIProvider,
+            variables: {
+              ...selectedAIProvider.variables,
+              api_key: provider.apiKey,
+            },
+          });
+        }
       }
     }
   }, [selectedAIProvider?.provider]);
@@ -41,8 +50,17 @@ export const Providers = ({
 
   const getApiKeyValue = () => {
     const apiKeyVar = findKeyAndValue("api_key");
-    if (!apiKeyVar || !selectedAIProvider?.variables) return "";
-    return selectedAIProvider?.variables?.[apiKeyVar.key] || "";
+    const currentProvider = allAiProviders?.find(
+      (p) => p?.id === selectedAIProvider?.provider
+    );
+    if (!apiKeyVar || !selectedAIProvider?.variables) {
+      return currentProvider?.apiKey || "";
+    }
+    return (
+      selectedAIProvider?.variables?.[apiKeyVar.key] ||
+      currentProvider?.apiKey ||
+      ""
+    );
   };
 
   const isApiKeyEmpty = () => {
@@ -70,9 +88,10 @@ export const Providers = ({
           })}
           placeholder="Choose your AI provider"
           onChange={(value) => {
+            const chosen = allAiProviders?.find((p) => p?.id === value);
             onSetSelectedAIProvider({
               provider: value,
-              variables: {},
+              variables: chosen?.apiKey ? { api_key: chosen.apiKey } : {},
             });
           }}
         />
@@ -276,9 +295,12 @@ export const Providers = ({
               if (provider && canListProviderModels(provider.id || "")) {
                 const getApiKey = () => {
                   const apiKeyVar = findKeyAndValue("api_key");
-                  if (!apiKeyVar || !selectedAIProvider?.variables) return "";
-                  return selectedAIProvider.variables[apiKeyVar.key] || "";
+                  const keyFromVars = apiKeyVar && selectedAIProvider?.variables
+                    ? selectedAIProvider.variables[apiKeyVar.key]
+                    : selectedAIProvider?.variables?.api_key;
+                  return keyFromVars || provider.apiKey || "";
                 };
+                const effectiveKey = getApiKey();
                 return (
                   <ModelPicker
                     key={`fast:${provider.id || ""}`}
@@ -286,9 +308,12 @@ export const Providers = ({
                     providerLabel={
                       provider.isCustom ? provider.name || "Custom Provider" : provider.id || ""
                     }
-                    apiKey={getApiKey()}
+                    apiKey={effectiveKey}
                     curl={provider.curl || ""}
-                    variables={selectedAIProvider?.variables || {}}
+                    variables={{
+                      api_key: effectiveKey,
+                      ...(selectedAIProvider?.variables || {}),
+                    }}
                     value={selectedAIProvider?.variables?.model || ""}
                     onSelect={setModel}
                   />
@@ -323,9 +348,12 @@ export const Providers = ({
               if (provider && canListProviderModels(provider.id || "")) {
                 const getSlowApiKey = () => {
                   const apiKeyVar = findKeyAndValue("api_key");
-                  if (!apiKeyVar || !selectedAIProvider?.variables) return "";
-                  return selectedAIProvider.variables[apiKeyVar.key] || "";
+                  const keyFromVars = apiKeyVar && selectedAIProvider?.variables
+                    ? selectedAIProvider.variables[apiKeyVar.key]
+                    : selectedAIProvider?.variables?.api_key;
+                  return keyFromVars || provider.apiKey || "";
                 };
+                const effectiveSlowKey = getSlowApiKey();
                 return (
                   <ModelPicker
                     key={`slow:${provider.id || ""}`}
@@ -333,9 +361,12 @@ export const Providers = ({
                     providerLabel={
                       provider.isCustom ? provider.name || "Custom Provider" : provider.id || ""
                     }
-                    apiKey={getSlowApiKey()}
+                    apiKey={effectiveSlowKey}
                     curl={provider.curl || ""}
-                    variables={selectedAIProvider?.variables || {}}
+                    variables={{
+                      api_key: effectiveSlowKey,
+                      ...(selectedAIProvider?.variables || {}),
+                    }}
                     value={selectedAIProvider?.variables?.slow_model || ""}
                     title="Slow Model"
                     description="Optional — a higher-quality model for deeper responses. Same account list; pick or type custom."

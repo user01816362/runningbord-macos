@@ -281,6 +281,13 @@ async function* streamAIResponse(
       SYSTEM_PROMPT: enhancedSystemPrompt || "",
     };
 
+    if (!allVariables.API_KEY && provider?.apiKey) {
+      allVariables.API_KEY = provider.apiKey;
+    }
+    if (!allVariables.MODEL && selectedProvider.variables?.model) {
+      allVariables.MODEL = selectedProvider.variables.model;
+    }
+
     // Substitute variables into the template before any user/history content is
     // inserted, so message text containing "{{API_KEY}}" etc. is never expanded.
     let bodyObj: any = deepVariableReplacer(

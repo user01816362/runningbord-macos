@@ -88,7 +88,12 @@ export const ModelPicker = ({
   const doFetch = useCallback(
     async (force: boolean) => {
       if (!supported || !(keyReady || hasPublicCatalog(providerId))) return;
-      const key = cacheKey(providerId, variables || {}, curl);
+      const effectiveKey = (variables || {}).api_key || apiKey || "";
+      const effectiveVars = {
+        ...(variables || {}),
+        api_key: effectiveKey,
+      };
+      const key = cacheKey(providerId, effectiveVars, curl);
       if (!force && cache.has(key)) {
         setModels(cache.get(key) || []);
         return;
@@ -100,7 +105,7 @@ export const ModelPicker = ({
       setError(null);
       try {
         const result = await listProviderModels(providerId, {
-          vars: variables || {},
+          vars: effectiveVars,
           curl,
           force,
         });
@@ -109,6 +114,10 @@ export const ModelPicker = ({
         setModels(result.ids);
         setOfficial(result.official);
         setUpdatedAt(Date.now());
+        // Auto-select first discovered model if none is currently selected
+        if (!value && result.ids.length > 0) {
+          onSelect(result.ids[0]);
+        }
       } catch (e) {
         if (requestIdRef.current !== requestId) return;
         setError(e instanceof Error ? e.message : "Failed to fetch models");
@@ -117,7 +126,7 @@ export const ModelPicker = ({
         fetchingRef.current = "";
       }
     },
-    [providerId, variables, curl, supported]
+    [providerId, variables, apiKey, curl, supported, keyReady, value, onSelect]
   );
 
   // Auto-fetch when ready (settings open counts as mount); manual refresh via icon.
@@ -128,7 +137,7 @@ export const ModelPicker = ({
       setError(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [providerId, apiKey, (variables || {}).region, curl]);
+  }, [providerId, apiKey, (variables || {}).api_key, (variables || {}).region, curl, canFetch]);
 
   useEffect(() => {
     setCustoms(getCustomModels(store));
