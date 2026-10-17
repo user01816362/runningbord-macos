@@ -21,6 +21,9 @@ import {
   PlayIcon,
   Loader2Icon,
   SettingsIcon,
+  ChevronDownIcon,
+  ChevronUpIcon,
+  XIcon,
 } from "lucide-react";
 
 interface SystemAudioStatusResponse {
@@ -91,10 +94,12 @@ export const MeetingModeToggle = () => {
   // Testing state inside popover
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
+  const [isTestResultCollapsed, setIsTestResultCollapsed] = useState(false);
 
   const runTest = async () => {
     setTesting(true);
     setTestResult(null);
+    setIsTestResultCollapsed(false);
     try {
       const capture = await captureMeetingAudio({
         windowSeconds: systemAudioDaemonConfig.bufferSeconds,
@@ -307,8 +312,40 @@ ${liveTranscript.hasText ? `• Last heard (${liveTranscript.speaker}): "${liveT
             </div>
 
             {testResult && (
-              <div className="p-2 rounded bg-muted/60 border border-input/40 text-[11px] text-foreground max-h-24 overflow-auto whitespace-pre-wrap">
-                {testResult}
+              <div className="rounded-lg bg-muted/40 border border-input/40 overflow-hidden text-[11px]">
+                <div className="flex items-center justify-between px-2.5 py-1.5 bg-muted/70 border-b border-input/30 text-[10px] text-muted-foreground font-medium select-none">
+                  <span className="flex items-center gap-1 text-foreground font-semibold">
+                    <AudioLinesIcon className="size-3 text-primary" />
+                    Test Transcript
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsTestResultCollapsed((prev) => !prev)}
+                      className="p-1 hover:text-foreground hover:bg-muted rounded transition-colors cursor-pointer"
+                      title={isTestResultCollapsed ? "Show transcript" : "Collapse transcript"}
+                    >
+                      {isTestResultCollapsed ? (
+                        <ChevronDownIcon className="size-3" />
+                      ) : (
+                        <ChevronUpIcon className="size-3" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTestResult(null)}
+                      className="p-1 hover:text-foreground hover:bg-muted rounded transition-colors cursor-pointer"
+                      title="Close test result"
+                    >
+                      <XIcon className="size-3" />
+                    </button>
+                  </div>
+                </div>
+                {!isTestResultCollapsed && (
+                  <div className="p-2.5 text-foreground max-h-28 overflow-auto whitespace-pre-wrap font-mono text-[10.5px] leading-relaxed">
+                    {testResult}
+                  </div>
+                )}
               </div>
             )}
           </PopoverContent>
