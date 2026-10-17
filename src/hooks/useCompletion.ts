@@ -659,15 +659,13 @@ export const useCompletion = () => {
         const previousResponse = latestStateRef.current.response;
         const isAutoAnswer = displayPrompt.startsWith("Auto-answer:");
 
-        if (!isAutoAnswer) {
-          setState((prev) => ({
-            ...prev,
-            input: displayPrompt,
-            isLoading: true,
-            error: null,
-            response: "",
-          }));
-        }
+        setState((prev) => ({
+          ...prev,
+          input: displayPrompt,
+          isLoading: true,
+          error: null,
+          response: isAutoAnswer ? prev.response : "",
+        }));
 
         let hasReceivedChunk = false;
 
@@ -685,40 +683,27 @@ export const useCompletion = () => {
         })) {
           if (currentRequestIdRef.current !== requestId || signal.aborted) return;
           fullResponse += chunk;
-          if (!isAutoAnswer) {
-            if (!hasReceivedChunk) {
-              hasReceivedChunk = true;
-              setState((prev) => ({ ...prev, response: chunk }));
-            } else {
-              setState((prev) => ({ ...prev, response: prev.response + chunk }));
-            }
+          if (!hasReceivedChunk) {
+            hasReceivedChunk = true;
+            setState((prev) => ({ ...prev, response: chunk }));
+          } else {
+            setState((prev) => ({ ...prev, response: prev.response + chunk }));
           }
         }
 
         if (currentRequestIdRef.current !== requestId || signal.aborted) return;
         if (discardIf?.(splitFollowUps(fullResponse).answer)) {
-          // Model declined with "No answer needed." - quietly exit in background without flashing window
           console.info("[auto-answer] Model declined with 'No answer needed.'");
-          if (!isAutoAnswer) {
-            setState((prev) => ({
-              ...prev,
-              isLoading: false,
-              input: "",
-              response: previousResponse,
-            }));
-          }
-          return;
-        }
-
-        if (isAutoAnswer) {
           setState((prev) => ({
             ...prev,
             isLoading: false,
-            response: fullResponse,
+            input: prev.input.startsWith("Auto-answer:") ? "" : prev.input,
+            response: prev.input.startsWith("Auto-answer:") ? previousResponse : prev.response,
           }));
-        } else {
-          setState((prev) => ({ ...prev, isLoading: false }));
+          return;
         }
+
+        setState((prev) => ({ ...prev, isLoading: false }));
         setTimeout(() => inputRef.current?.focus(), 100);
 
         if (fullResponse) {
@@ -727,21 +712,15 @@ export const useCompletion = () => {
         }
       } catch (e: any) {
         if (currentRequestIdRef.current === requestId && !signal.aborted) {
-          if (!displayPrompt.startsWith("Auto-answer:")) {
-            setState((prev) => ({
-              ...prev,
-              error: e.message || "An error occurred",
-              response: prev.response,
-            }));
-          } else {
-            console.warn("[auto-answer] Error during evaluation:", e);
-          }
+          setState((prev) => ({
+            ...prev,
+            error: e.message || "An error occurred",
+            response: displayPrompt.startsWith("Auto-answer:") ? latestStateRef.current.response : prev.response,
+          }));
         }
       } finally {
         if (currentRequestIdRef.current === requestId && !signal.aborted) {
-          if (!displayPrompt.startsWith("Auto-answer:")) {
-            setState((prev) => ({ ...prev, isLoading: false }));
-          }
+          setState((prev) => ({ ...prev, isLoading: false }));
         }
       }
     },
@@ -1075,7 +1054,14 @@ export const useCompletion = () => {
 
     const displayPrompt = `Auto-answer: ${question}`;
     const detectedAt = Date.now();
-    // Do not set isLoading = true on UI state yet to prevent opening and flash-closing if discarded
+    // Show detected question and loading spinner immediately
+    setState((prev) => ({
+      ...prev,
+      input: displayPrompt,
+      isLoading: true,
+      error: null,
+      response: prev.response,
+    }));
 
     const timed = async <T,>(work: Promise<T>) => {
       const started = performance.now();
