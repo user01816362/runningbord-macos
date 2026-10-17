@@ -16,8 +16,12 @@ export function useCustomAiProviders() {
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [formData, setFormData] = useState<TYPE_PROVIDER>({
     id: "",
-    streaming: false,
-    responseContentPath: "",
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    protocol: "openai",
+    streaming: true,
+    responseContentPath: "choices[0].delta.content",
     isCustom: true,
     curl: "",
   });
@@ -72,20 +76,21 @@ export function useCustomAiProviders() {
     setDeleteConfirm(null);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideData?: Partial<TYPE_PROVIDER>) => {
+    const dataToSave = { ...formData, ...(overrideData || {}) };
     // Validate form
     const newErrors: { [key: string]: string } = {};
 
-    if (!formData.curl.trim()) {
-      newErrors.curl = "Curl command is required";
+    if (!dataToSave.curl.trim()) {
+      newErrors.curl = "Curl command or Base URL is required";
     } else {
-      const validation = validateCurl(formData.curl, ["TEXT"]);
+      const validation = validateCurl(dataToSave.curl, ["TEXT"]);
       if (!validation.isValid) {
         newErrors.curl = validation.message || "";
       }
     }
 
-    if (!formData.responseContentPath?.trim()) {
+    if (!dataToSave.responseContentPath?.trim()) {
       newErrors.responseContentPath = "Response content path is required";
     }
 
@@ -99,9 +104,13 @@ export function useCustomAiProviders() {
       if (editingProvider) {
         // Update existing provider
         const success = updateCustomAiProvider(editingProvider, {
-          curl: formData.curl,
-          streaming: formData.streaming,
-          responseContentPath: formData.responseContentPath,
+          name: dataToSave.name,
+          baseUrl: dataToSave.baseUrl,
+          apiKey: dataToSave.apiKey,
+          protocol: dataToSave.protocol,
+          curl: dataToSave.curl,
+          streaming: dataToSave.streaming,
+          responseContentPath: dataToSave.responseContentPath,
         });
 
         if (success) {
@@ -109,8 +118,12 @@ export function useCustomAiProviders() {
           setShowForm(false);
           setFormData({
             id: "",
-            streaming: false,
-            responseContentPath: "",
+            name: "",
+            baseUrl: "",
+            apiKey: "",
+            protocol: "openai",
+            streaming: true,
+            responseContentPath: "choices[0].delta.content",
             isCustom: true,
             curl: "",
           });
@@ -119,9 +132,13 @@ export function useCustomAiProviders() {
       } else {
         // Create new provider
         const newProvider = {
-          curl: formData.curl,
-          streaming: formData.streaming,
-          responseContentPath: formData.responseContentPath,
+          name: dataToSave.name,
+          baseUrl: dataToSave.baseUrl,
+          apiKey: dataToSave.apiKey,
+          protocol: dataToSave.protocol,
+          curl: dataToSave.curl,
+          streaming: dataToSave.streaming,
+          responseContentPath: dataToSave.responseContentPath,
         };
 
         const saved = addCustomAiProvider(newProvider);
@@ -129,8 +146,12 @@ export function useCustomAiProviders() {
           setShowForm(false);
           setFormData({
             id: "",
-            streaming: false,
-            responseContentPath: "",
+            name: "",
+            baseUrl: "",
+            apiKey: "",
+            protocol: "openai",
+            streaming: true,
+            responseContentPath: "choices[0].delta.content",
             isCustom: true,
             curl: "",
           });

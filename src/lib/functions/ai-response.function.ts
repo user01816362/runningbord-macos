@@ -9,6 +9,7 @@ import {
   extractVariables,
   getByPath,
   getStreamingContent,
+  getStreamingReasoning,
 } from "./common.function";
 import { resolveBedrockEndpoint } from "./bedrock.function";
 import { Message, TYPE_PROVIDER } from "@/types";
@@ -233,7 +234,17 @@ async function* streamAIResponse(
       ({ key }) => key !== "SYSTEM_PROMPT" && key !== "TEXT" && key !== "IMAGE"
     );
 
+    const isLocalOrCustom =
+      Boolean(provider.isCustom) ||
+      provider.id === "ollama" ||
+      provider.curl.includes("127.0.0.1") ||
+      provider.curl.includes("localhost");
+
     for (const { key } of requiredVars) {
+      // API_KEY is optional for local and custom providers (e.g. EasyCLIProxyAPI, Ollama, LM Studio)
+      if (key === "API_KEY" && isLocalOrCustom) {
+        continue;
+      }
       if (
         !selectedProvider.variables?.[key] ||
         selectedProvider.variables[key].trim() === ""
@@ -321,6 +332,15 @@ async function* streamAIResponse(
     const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
     headers["Content-Type"] = "application/json";
 
+    // Prune empty or unresolved Authorization headers so keyless local servers don't reject the request
+    for (const [hKey, hVal] of Object.entries(headers)) {
+      if (typeof hVal === "string") {
+        if (/Bearer\s*(\{\{API_KEY\}\})?$/i.test(hVal) || hVal.trim() === "Bearer" || hVal.trim() === "") {
+          delete headers[hKey];
+        }
+      }
+    }
+
     bodyObj = addPromptCacheBreakpoints(bodyObj, url, headers);
 
     // OpenAI-style APIs opt into streaming with a "stream" body field; Google's
@@ -340,7 +360,12 @@ async function* streamAIResponse(
       }
     }
 
-    const fetchFunction = url?.includes("http") ? fetch : tauriFetch;
+    // In desktop Tauri apps, ALWAYS use tauriFetch (@tauri-apps/plugin-http) to route
+    // through Rust reqwest. This completely bypasses macOS WebKit CORS, ATS, and Private Network restrictions.
+    const fetchFunction =
+      typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+        ? tauriFetch
+        : fetch;
 
     let response;
     try {
@@ -397,18 +422,35 @@ async function* streamAIResponse(
       );
     }
 
-    if (!provider?.streaming) {
+    const contentType = response.headers?.get("content-type") || "";
+    const isDirectJson =
+      contentType.includes("application/json") &&
+      !contentType.includes("text/event-stream");
+
+    if (!provider?.streaming || isDirectJson) {
       let json;
       try {
         json = await response.json();
       } catch (parseError) {
         throw new Error(
-          `Failed to parse non-streaming response: ${
+          `Failed to parse response: ${
             parseError instanceof Error ? parseError.message : "Unknown error"
           } (requestId: ${requestId})`
         );
       }
-      const content = getByPath(json, provider?.responseContentPath || "") || "";
+      if (json?.error) {
+        const errMsg =
+          typeof json.error === "string"
+            ? json.error
+            : json.error.message || JSON.stringify(json.error);
+        throw new Error(errMsg);
+      }
+      const content =
+        getByPath(json, provider?.responseContentPath || "") ||
+        json?.choices?.[0]?.message?.content ||
+        json?.message?.content ||
+        json?.response ||
+        "";
       yield content;
       return;
     }
@@ -420,72 +462,130 @@ async function* streamAIResponse(
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let inThinkingBlock = false;
 
-    while (true) {
-      // Check if aborted
-      if (signal?.aborted) {
-        reader.cancel();
-        return;
-      }
-
-      let readResult;
-      try {
-        readResult = await reader.read();
-      } catch (readError) {
+    try {
+      while (true) {
         // Check if aborted
-        if (
-          signal?.aborted ||
-          (readError instanceof Error && readError.name === "AbortError")
-        ) {
-          return; // Silently return on abort
+        if (signal?.aborted) {
+          reader.cancel();
+          return;
         }
-        logNetworkFailure({
-          requestId,
-          providerId: provider?.id,
-          url: redactUrl(url),
-          method: curlJson.method || "POST",
-          errorName: readError instanceof Error ? readError.name : undefined,
-          errorMessage:
-            readError instanceof Error ? readError.message : "Unknown error",
-          headers: headers as Record<string, string>,
-        });
-        throw new Error(
-          `Error reading stream: ${
-            readError instanceof Error ? readError.message : "Unknown error"
-          } (requestId: ${requestId})`
-        );
-      }
-      const { done, value } = readResult;
-      if (done) break;
 
-      // Check if aborted before processing
-      if (signal?.aborted) {
-        reader.cancel();
-        return;
-      }
+        let readResult;
+        try {
+          readResult = await reader.read();
+        } catch (readError) {
+          // Check if aborted
+          if (
+            signal?.aborted ||
+            (readError instanceof Error && readError.name === "AbortError")
+          ) {
+            return; // Silently return on abort
+          }
+          logNetworkFailure({
+            requestId,
+            providerId: provider?.id,
+            url: redactUrl(url),
+            method: curlJson.method || "POST",
+            errorName: readError instanceof Error ? readError.name : undefined,
+            errorMessage:
+              readError instanceof Error ? readError.message : "Unknown error",
+            headers: headers as Record<string, string>,
+          });
+          throw new Error(
+            `Error reading stream: ${
+              readError instanceof Error ? readError.message : "Unknown error"
+            } (requestId: ${requestId})`
+          );
+        }
+        const { done, value } = readResult;
+        if (done) break;
 
-      buffer += decoder.decode(value, { stream: true });
+        // Check if aborted before processing
+        if (signal?.aborted) {
+          reader.cancel();
+          return;
+        }
 
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-      for (const line of lines) {
-        if (line.startsWith("data:")) {
-          const trimmed = line.substring(5).trim();
-          if (!trimmed || trimmed === "[DONE]") continue;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+
+          let jsonStr: string | null = null;
+          if (trimmed.startsWith("data:")) {
+            const dataStr = trimmed.substring(5).trim();
+            if (dataStr === "[DONE]") {
+              if (inThinkingBlock) {
+                yield "\n</think>\n\n";
+                inThinkingBlock = false;
+              }
+              continue;
+            }
+            jsonStr = dataStr;
+          } else if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+            // NDJSON format (e.g. Ollama native stream or direct JSON lines)
+            jsonStr = trimmed;
+          }
+
+          if (!jsonStr) continue;
+
           try {
-            const parsed = JSON.parse(trimmed);
+            const parsed = JSON.parse(jsonStr);
+
+            // Re-throw server-emitted error chunks in stream
+            if (parsed.error) {
+              const errMsg =
+                typeof parsed.error === "string"
+                  ? parsed.error
+                  : parsed.error.message || JSON.stringify(parsed.error);
+              throw new Error(errMsg);
+            }
+
+            // Handle reasoning tokens (DeepSeek R1 / o1 / o3 / Qwen thinking)
+            const reasoning = getStreamingReasoning(parsed);
+            if (reasoning) {
+              if (!inThinkingBlock) {
+                yield "<think>\n";
+                inThinkingBlock = true;
+              }
+              yield reasoning;
+            }
+
+            // Handle content tokens
             const delta = getStreamingContent(
               parsed,
               provider?.responseContentPath || ""
             );
             if (delta) {
+              if (inThinkingBlock) {
+                yield "\n</think>\n\n";
+                inThinkingBlock = false;
+              }
               yield delta;
             }
-          } catch (e) {
-            // Ignore parsing errors for partial JSON chunks
+          } catch (e: any) {
+            if (
+              e.message &&
+              !e.message.includes("Unexpected token") &&
+              !e.message.includes("JSON")
+            ) {
+              throw e;
+            }
           }
         }
       }
+
+      if (inThinkingBlock) {
+        yield "\n</think>\n\n";
+        inThinkingBlock = false;
+      }
+    } finally {
+      reader.releaseLock();
     }
   } catch (error) {
     throw error instanceof Error ? error : new Error(String(error));

@@ -62,7 +62,7 @@ export const Providers = ({
             const json = curl2Json(provider?.curl);
             return {
               label: provider?.isCustom
-                ? json?.url || "Custom Provider"
+                ? provider?.name || json?.url || "Custom Provider"
                 : provider?.id || "Custom Provider",
               value: provider?.id || "Custom Provider",
               isCustom: provider?.isCustom,
@@ -284,7 +284,7 @@ export const Providers = ({
                     key={`fast:${provider.id || ""}`}
                     providerId={provider.id || ""}
                     providerLabel={
-                      provider.isCustom ? "Custom Provider" : provider.id || ""
+                      provider.isCustom ? provider.name || "Custom Provider" : provider.id || ""
                     }
                     apiKey={getApiKey()}
                     curl={provider.curl || ""}
@@ -331,7 +331,7 @@ export const Providers = ({
                     key={`slow:${provider.id || ""}`}
                     providerId={provider.id || ""}
                     providerLabel={
-                      provider.isCustom ? "Custom Provider" : provider.id || ""
+                      provider.isCustom ? provider.name || "Custom Provider" : provider.id || ""
                     }
                     apiKey={getSlowApiKey()}
                     curl={provider.curl || ""}

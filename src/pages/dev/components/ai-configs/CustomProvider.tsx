@@ -38,8 +38,13 @@ export const CustomProviders = ({ allAiProviders }: UseSettingsReturn) => {
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-medium text-sm">
-                          {json?.url || "Invalid curl command"}
+                        <h4 className="font-medium text-sm flex items-center gap-2">
+                          <span>{provider?.name || json?.url || "Custom Provider"}</span>
+                          {provider?.name && json?.url && (
+                            <span className="text-xs font-mono text-muted-foreground font-normal">
+                              ({json.url})
+                            </span>
+                          )}
                         </h4>
 
                         <div className="flex items-center gap-2 mt-1">

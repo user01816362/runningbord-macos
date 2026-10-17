@@ -236,13 +236,17 @@ export function deepVariableReplacer(
   return node;
 }
 
-/**
- * Extracts content from a streaming API response chunk by trying a series of common JSON paths.
- * This makes the system more resilient to variations in streaming formats.
- * @param chunk The parsed JSON object from a stream line.
- * @param defaultPath The default, non-streaming content path for the provider.
- * @returns The extracted text content, or null if not found.
- */
+/** Extracts reasoning/thinking content from a streaming chunk (DeepSeek R1, o1, etc.). */
+export function getStreamingReasoning(chunk: any): string | null {
+  if (!chunk || typeof chunk !== "object") return null;
+  const reasoning =
+    chunk.choices?.[0]?.delta?.reasoning_content ||
+    chunk.choices?.[0]?.delta?.thought ||
+    chunk.choices?.[0]?.delta?.reasoning ||
+    chunk.candidates?.[0]?.content?.parts?.[0]?.thought;
+  return typeof reasoning === "string" && reasoning ? reasoning : null;
+}
+
 export function getStreamingContent(
   chunk: any,
   defaultPath: string
@@ -254,6 +258,9 @@ export function getStreamingContent(
     defaultPath.replace(".message.", ".delta."),
     // 2. Then, add other common patterns.
     "choices[0].delta.content", // OpenAI, Groq, Mistral, Perplexity
+    "choices[0].delta.text",
+    "message.content", // Ollama chat
+    "response", // Ollama generate
     "candidates[0].content.parts[0].text", // Gemini
     "delta.text", // Claude
     "text", // Cohere

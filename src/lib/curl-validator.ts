@@ -42,3 +42,63 @@ export const validateCurl = (
 
   return { isValid: true };
 };
+
+export interface BaseUrlValidationResult {
+  isValid: boolean;
+  message?: string;
+  normalizedUrl?: string;
+}
+
+export function validateBaseUrl(urlStr: string): BaseUrlValidationResult {
+  if (!urlStr || !urlStr.trim()) {
+    return { isValid: false, message: "Base URL is required." };
+  }
+
+  let trimmed = urlStr.trim();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+    trimmed = `http://${trimmed}`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!parsed.hostname) {
+      return { isValid: false, message: "Invalid host in Base URL." };
+    }
+    return { isValid: true, normalizedUrl: trimmed.replace(/\/+$/, "") };
+  } catch {
+    return { isValid: false, message: "Invalid URL format." };
+  }
+}
+
+export function normalizeChatEndpoint(baseUrl: string): string {
+  const clean = baseUrl.trim().replace(/\/+$/, "");
+  if (clean.endsWith("/chat/completions")) {
+    return clean;
+  }
+  if (clean.endsWith("/v1")) {
+    return `${clean}/chat/completions`;
+  }
+  return `${clean}/v1/chat/completions`;
+}
+
+export function generateOpenAICurl(baseUrl: string, hasApiKey = false): string {
+  const endpoint = normalizeChatEndpoint(baseUrl);
+  const authHeader = hasApiKey
+    ? `  -H "Authorization: Bearer {{API_KEY}}" \\\n`
+    : `  -H "Authorization: Bearer {{API_KEY}}" \\\n`; // Keep {{API_KEY}} placeholder so key can be passed or left blank
+
+  return `curl "${endpoint}" \\
+  -H "Content-Type: application/json" \\
+${authHeader}  -d '{
+    "model": "{{MODEL}}",
+    "messages": [
+      {"role": "system", "content": "{{SYSTEM_PROMPT}}"},
+      {"role": "user", "content": [
+        {"type": "text", "text": "{{TEXT}}"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,{{IMAGE}}"}}
+      ]}
+    ],
+    "stream": true
+  }'`;
+}
+

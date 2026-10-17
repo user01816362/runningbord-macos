@@ -37,8 +37,12 @@ function uniqSorted(ids: any[]): string[] {
 async function getJson(url: string, headers: Record<string, string>): Promise<any> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
+  const fetchFn =
+    typeof window !== "undefined" && "__TAURI_INTERNALS__" in window
+      ? tauriFetch
+      : fetch;
   try {
-    const res = await tauriFetch(url, { headers, signal: controller.signal });
+    const res = await fetchFn(url, { headers, signal: controller.signal });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(
@@ -283,9 +287,67 @@ const SOURCES: Record<string, ModelListSource> = {
   },
 };
 
-/** False for custom providers (no known list route) — UI stays manual entry. */
+/**
+ * Probes a custom provider endpoint (e.g. EasyCLIProxyAPI, Ollama, LM Studio)
+ * for its model catalog across standard OpenAI, Ollama, and local model routes.
+ */
+export async function fetchCustomProviderModels(
+  baseUrlOrCurl: string,
+  apiKey?: string
+): Promise<string[]> {
+  const m = (baseUrlOrCurl || "").match(/https?:\/\/[^\s'"\\]+/i);
+  let cleanUrl = m ? m[0].replace(/\/+$/, "") : (baseUrlOrCurl || "").trim().replace(/\/+$/, "");
+  if (!cleanUrl) return [];
+  if (!cleanUrl.startsWith("http://") && !cleanUrl.startsWith("https://")) {
+    cleanUrl = `http://${cleanUrl}`;
+  }
+
+  const headers: Record<string, string> = { Accept: "application/json, text/plain, */*" };
+  if (apiKey && apiKey.trim()) {
+    headers["Authorization"] = `Bearer ${apiKey.trim()}`;
+  }
+
+  const stripped = cleanUrl
+    .replace(/\/chat\/completions.*$/, "")
+    .replace(/\/v1$/, "");
+
+  const probeUrls = [
+    `${stripped}/v1/models`,
+    `${cleanUrl.replace(/\/chat\/completions.*$/, "")}/models`,
+    `${stripped}/models`,
+    `${stripped}/api/tags`,
+    `${stripped}/api/v1/models`,
+  ];
+
+  if (stripped.includes("127.0.0.1")) {
+    probeUrls.push(`${stripped.replace("127.0.0.1", "localhost")}/v1/models`);
+    probeUrls.push(`${stripped.replace("127.0.0.1", "localhost")}/api/tags`);
+  } else if (stripped.includes("localhost")) {
+    probeUrls.push(`${stripped.replace("localhost", "127.0.0.1")}/v1/models`);
+    probeUrls.push(`${stripped.replace("localhost", "127.0.0.1")}/api/tags`);
+  }
+
+  const uniqueProbes = [...new Set(probeUrls)];
+  for (const pUrl of uniqueProbes) {
+    try {
+      const json = await getJson(pUrl, headers);
+      const ids = extractIds(json);
+      if (ids.length > 0) {
+        return ids;
+      }
+    } catch {
+      // Continue probing other candidate paths
+    }
+  }
+
+  return [];
+}
+
+/** True for built-in or custom providers that support model discovery */
 export function canListProviderModels(providerId: string): boolean {
-  return Object.prototype.hasOwnProperty.call(SOURCES, providerId);
+  if (Object.prototype.hasOwnProperty.call(SOURCES, providerId)) return true;
+  if (providerId.startsWith("custom-")) return true;
+  return false;
 }
 
 /**
@@ -315,6 +377,7 @@ const KEYLESS_PROVIDERS = new Set([
   "groq",
   "perplexity",
   "openrouter",
+  "ollama",
 ]);
 
 let publicCatalog: Promise<string[]> | null = null;
@@ -364,6 +427,7 @@ async function listFromPublicCatalog(providerId: string): Promise<string[]> {
 }
 
 export function isProviderListReady(providerId: string, vars: Record<string, string>): boolean {
+  if (providerId.startsWith("custom-")) return true;
   const src = SOURCES[providerId];
   return !!src && src.ready(vars || {});
 }
@@ -377,6 +441,10 @@ export async function listProviderModels(
   providerId: string,
   ctx: ModelListContext
 ): Promise<{ ids: string[]; official: boolean }> {
+  if (providerId.startsWith("custom-")) {
+    const ids = await fetchCustomProviderModels(ctx.curl, ctx.vars?.api_key);
+    return { ids, official: ids.length > 0 };
+  }
   const src = SOURCES[providerId];
   if (!src) throw new Error(`Model listing is not supported for '${providerId}'.`);
   // Official account-scoped list first; public catalog fallback (no key).

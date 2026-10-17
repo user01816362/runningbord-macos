@@ -205,7 +205,7 @@ export const AI_PROVIDERS = [
     "model": "{{MODEL}}",
     "messages": [{"role": "system", "content": "{{SYSTEM_PROMPT}}"}, {"role": "user", "content": [{"type": "text", "text": "{{TEXT}}"}, {"type": "image_url", "image_url": {"url": "data:image/png;base64,{{IMAGE}}"}}]}]
   }'`,
-    responseContentPath: "choices[0].message.content",
+    responseContentPath: "choices[0].delta.content",
     streaming: true,
   },
 ];
