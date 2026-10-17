@@ -16,8 +16,12 @@ export function useCustomSttProviders() {
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
   const [formData, setFormData] = useState<TYPE_PROVIDER>({
     id: "",
+    name: "",
+    baseUrl: "",
+    apiKey: "",
+    protocol: "openai",
     streaming: false,
-    responseContentPath: "",
+    responseContentPath: "text",
     isCustom: true,
     curl: "",
   });
@@ -72,26 +76,27 @@ export function useCustomSttProviders() {
     setDeleteConfirm(null);
   };
 
-  const handleSave = async () => {
+  const handleSave = async (overrideData?: Partial<TYPE_PROVIDER>) => {
+    const dataToSave = { ...formData, ...(overrideData || {}) };
     // Validate form
     const newErrors: { [key: string]: string } = {};
 
-    if (!formData.curl.trim()) {
-      newErrors.curl = "Curl command is required";
+    if (!dataToSave.curl.trim()) {
+      newErrors.curl = "Curl command or Base URL is required";
     } else {
-      const hasAudioVar = formData.curl.includes("{{AUDIO}}");
+      const hasAudioVar = dataToSave.curl.includes("{{AUDIO}}");
 
       if (!hasAudioVar) {
         newErrors.curl = "cURL command must contain {{AUDIO}}.";
       } else {
-        const validation = validateCurl(formData.curl, []);
+        const validation = validateCurl(dataToSave.curl, []);
         if (!validation.isValid) {
           newErrors.curl = validation.message || "";
         }
       }
     }
 
-    if (!formData.responseContentPath?.trim()) {
+    if (!dataToSave.responseContentPath?.trim()) {
       newErrors.responseContentPath = "Response content path is required";
     }
 
@@ -105,9 +110,13 @@ export function useCustomSttProviders() {
       if (editingProvider) {
         // Update existing provider
         const success = updateCustomSttProvider(editingProvider, {
-          curl: formData.curl,
-          streaming: false, // Streaming is not supported for STT providers. it will be fixed in the future.
-          responseContentPath: formData.responseContentPath,
+          name: dataToSave.name,
+          baseUrl: dataToSave.baseUrl,
+          apiKey: dataToSave.apiKey,
+          protocol: dataToSave.protocol,
+          curl: dataToSave.curl,
+          streaming: false,
+          responseContentPath: dataToSave.responseContentPath,
         });
 
         if (success) {
@@ -115,8 +124,12 @@ export function useCustomSttProviders() {
           setShowForm(false);
           setFormData({
             id: "",
+            name: "",
+            baseUrl: "",
+            apiKey: "",
+            protocol: "openai",
             streaming: false,
-            responseContentPath: "",
+            responseContentPath: "text",
             isCustom: true,
             curl: "",
           });
@@ -125,9 +138,13 @@ export function useCustomSttProviders() {
       } else {
         // Create new provider
         const newProvider = {
-          curl: formData.curl,
-          streaming: false, // Streaming is not supported for STT providers. it will be fixed in the future.
-          responseContentPath: formData.responseContentPath,
+          name: dataToSave.name,
+          baseUrl: dataToSave.baseUrl,
+          apiKey: dataToSave.apiKey,
+          protocol: dataToSave.protocol,
+          curl: dataToSave.curl,
+          streaming: false,
+          responseContentPath: dataToSave.responseContentPath,
         };
 
         const saved = addCustomSttProvider(newProvider);
@@ -135,8 +152,12 @@ export function useCustomSttProviders() {
           setShowForm(false);
           setFormData({
             id: "",
+            name: "",
+            baseUrl: "",
+            apiKey: "",
+            protocol: "openai",
             streaming: false,
-            responseContentPath: "",
+            responseContentPath: "text",
             isCustom: true,
             curl: "",
           });

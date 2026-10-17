@@ -309,11 +309,12 @@ export async function fetchCustomProviderModels(
 
   const stripped = cleanUrl
     .replace(/\/chat\/completions.*$/, "")
+    .replace(/\/audio\/transcriptions.*$/, "")
     .replace(/\/v1$/, "");
 
   const probeUrls = [
     `${stripped}/v1/models`,
-    `${cleanUrl.replace(/\/chat\/completions.*$/, "")}/models`,
+    `${cleanUrl.replace(/\/chat\/completions.*$/, "").replace(/\/audio\/transcriptions.*$/, "")}/models`,
     `${stripped}/models`,
     `${stripped}/api/tags`,
     `${stripped}/api/v1/models`,
@@ -346,7 +347,7 @@ export async function fetchCustomProviderModels(
 /** True for built-in or custom providers that support model discovery */
 export function canListProviderModels(providerId: string): boolean {
   if (Object.prototype.hasOwnProperty.call(SOURCES, providerId)) return true;
-  if (providerId.startsWith("custom-")) return true;
+  if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) return true;
   return false;
 }
 
@@ -427,7 +428,7 @@ async function listFromPublicCatalog(providerId: string): Promise<string[]> {
 }
 
 export function isProviderListReady(providerId: string, vars: Record<string, string>): boolean {
-  if (providerId.startsWith("custom-")) return true;
+  if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) return true;
   const src = SOURCES[providerId];
   return !!src && src.ready(vars || {});
 }
@@ -441,8 +442,15 @@ export async function listProviderModels(
   providerId: string,
   ctx: ModelListContext
 ): Promise<{ ids: string[]; official: boolean }> {
-  if (providerId.startsWith("custom-")) {
+  if (providerId.startsWith("custom-") || providerId.startsWith("stt:custom-")) {
     const ids = await fetchCustomProviderModels(ctx.curl, ctx.vars?.api_key);
+    if (providerId.startsWith("stt:")) {
+      const sttMatches = ids.filter((id) => /whisper|transcri|audio|stt|speech|scribe/i.test(id));
+      if (sttMatches.length > 0) {
+        const others = ids.filter((id) => !/whisper|transcri|audio|stt|speech|scribe/i.test(id));
+        return { ids: [...sttMatches, ...others], official: true };
+      }
+    }
     return { ids, official: ids.length > 0 };
   }
   const src = SOURCES[providerId];

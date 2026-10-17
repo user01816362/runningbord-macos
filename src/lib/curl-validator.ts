@@ -102,3 +102,22 @@ ${authHeader}  -d '{
   }'`;
 }
 
+export function normalizeSttEndpoint(baseUrl: string): string {
+  const clean = baseUrl.trim().replace(/\/+$/, "");
+  if (clean.endsWith("/audio/transcriptions")) {
+    return clean;
+  }
+  if (clean.endsWith("/v1")) {
+    return `${clean}/audio/transcriptions`;
+  }
+  return `${clean}/v1/audio/transcriptions`;
+}
+
+export function generateOpenAISTTCurl(baseUrl: string): string {
+  const endpoint = normalizeSttEndpoint(baseUrl);
+  return `curl -X POST "${endpoint}" \\
+  -H "Authorization: Bearer {{API_KEY}}" \\
+  -F "file={{AUDIO}}" \\
+  -F "model={{MODEL}}"`;
+}
+

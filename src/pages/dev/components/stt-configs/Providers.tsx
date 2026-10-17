@@ -54,10 +54,12 @@ export const Providers = ({
           options={allSttProviders?.map((provider) => {
             const json = curl2Json(provider?.curl);
             return {
-              label: provider?.isCustom
-                ? json?.url || "Custom Provider"
-                : provider?.id || "Custom Provider",
-              value: provider?.id || "Custom Provider",
+              label: provider?.name
+                ? provider.name
+                : provider?.isCustom
+                ? json?.url || "Custom STT Provider"
+                : provider?.id || "Custom STT Provider",
+              value: provider?.id || "Custom STT Provider",
               isCustom: provider?.isCustom,
             };
           })}
@@ -95,9 +97,12 @@ export const Providers = ({
             description={`Enter your ${
               allSttProviders?.find(
                 (p) => p?.id === selectedSttProvider?.provider
+              )?.name ||
+              (allSttProviders?.find(
+                (p) => p?.id === selectedSttProvider?.provider
               )?.isCustom
-                ? "Custom Provider"
-                : selectedSttProvider?.provider
+                ? "Custom STT Provider"
+                : selectedSttProvider?.provider)
             } API key to authenticate and access STT models. Your key is kept in the system keychain and only sent to this provider.`}
           />
 
@@ -254,7 +259,10 @@ export const Providers = ({
               <ModelPicker
                 key={sttId}
                 providerId={sttId}
-                providerLabel={provider?.isCustom ? "Custom Provider" : selectedSttProvider.provider}
+                providerLabel={
+                  provider?.name ||
+                  (provider?.isCustom ? "Custom STT Provider" : selectedSttProvider.provider)
+                }
                 apiKey={apiKeyVar && selectedSttProvider.variables ? selectedSttProvider.variables[apiKeyVar.key] || "" : ""}
                 curl={provider?.curl || ""}
                 variables={selectedSttProvider?.variables || {}}

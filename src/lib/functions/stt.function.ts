@@ -87,6 +87,17 @@ export async function fetchSTT(params: STTParams): Promise<string> {
     }
 
     let finalHeaders = { ...headers };
+
+    // Clean up empty Authorization headers for keyless local AI / STT servers
+    if (
+      finalHeaders["Authorization"] === "Bearer " ||
+      finalHeaders["Authorization"] === "Bearer" ||
+      (typeof finalHeaders["Authorization"] === "string" &&
+        !finalHeaders["Authorization"].replace(/bearer/i, "").trim())
+    ) {
+      delete finalHeaders["Authorization"];
+    }
+
     let body: FormData | string | Blob;
 
     const isForm =
