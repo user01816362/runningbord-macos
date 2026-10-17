@@ -1167,11 +1167,11 @@ export const useCompletion = () => {
         if (cancelled) fn();
         else unlisteners.push(fn);
       });
-    // Listen for questions from both meeting system audio and mic (for testing or direct speaking)
+    // Only the other participants' audio: the user's own questions aren't answered.
     subscribe<{ source: string; text: string; endMs: number; speaker?: string }>(
       "live-transcript-segment",
       (segment) => {
-        if (segment.source !== "system" && segment.source !== "mic") return;
+        if (segment.source !== "system") return;
         // Compare people by the name the user gave them, so two voice labels
         // named the same (one person split in two) count as one speaker.
         const speaker = segment.speaker ? speakerDisplayName(segment.speaker) : undefined;
@@ -1179,7 +1179,7 @@ export const useCompletion = () => {
       }
     );
     subscribe<{ source: string }>("live-transcript-partial", (partial) => {
-      if (partial.source === "system" || partial.source === "mic") detector.speaking();
+      if (partial.source === "system") detector.speaking();
     });
     return () => {
       cancelled = true;
