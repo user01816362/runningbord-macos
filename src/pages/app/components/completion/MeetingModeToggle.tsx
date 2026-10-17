@@ -60,10 +60,6 @@ export const MeetingModeToggle = () => {
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const { resizeWindow } = useWindowResize();
 
-  useEffect(() => {
-    resizeWindow(isDetailsOpen);
-  }, [isDetailsOpen, resizeWindow]);
-
   const [audioStatus, setAudioStatus] = useState<SystemAudioStatusResponse | null>(null);
 
   // Poll audio status periodically when enabled and showAudioActivity is on
@@ -183,7 +179,15 @@ ${liveTranscript.hasText ? `• Last heard (${liveTranscript.speaker}): "${liveT
 
       {/* Optional Audio Buffer & Live Transcript Details Pill */}
       {enabled && !failed && (showAudioActivity || showLivePreview) && (
-        <Popover open={isDetailsOpen} onOpenChange={setIsDetailsOpen}>
+        <Popover
+          open={isDetailsOpen}
+          onOpenChange={(open) => {
+            setIsDetailsOpen(open);
+            if (open) {
+              resizeWindow(true);
+            }
+          }}
+        >
           <PopoverTrigger asChild>
             <button
               type="button"

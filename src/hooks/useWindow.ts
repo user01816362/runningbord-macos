@@ -10,57 +10,55 @@ const isAnyPopoverOpen = (): boolean => {
   return popoverContents.length > 0;
 };
 
-export const useWindowResize = () => {
-  // Debounce + deduplicate resize requests to prevent rapid flicker
-  const lastRequestedHeightRef = useRef<number | null>(null);
-  const resizeTimerRef = useRef<number | null>(null);
+// Module-level shared state across all hook instances to coordinate window height and prevent fighting
+let globalLastRequestedHeight: number | null = null;
+let globalResizeTimer: ReturnType<typeof setTimeout> | null = null;
 
-  const resizeWindow = useCallback(async (expanded: boolean) => {
-    try {
-      const window = getCurrentWebviewWindow();
+export const resizeWindow = async (expanded: boolean) => {
+  try {
+    const window = getCurrentWebviewWindow();
 
-      if (!expanded && isAnyPopoverOpen()) {
-        return;
-      }
-
-      const newHeight = expanded ? 600 : 54;
-
-      // Skip if the same height was requested recently
-      if (lastRequestedHeightRef.current === newHeight) {
-        return;
-      }
-
-      // Debounce multiple quick calls
-      if (resizeTimerRef.current) {
-        clearTimeout(resizeTimerRef.current);
-        resizeTimerRef.current = null;
-      }
-
-      // Use a short debounce to avoid rapid toggling when responses stream
-      const timer = setTimeout(async () => {
-        try {
-          await invoke("set_window_height", {
-            window,
-            height: newHeight,
-          });
-          lastRequestedHeightRef.current = newHeight;
-        } catch (error) {
-          console.error("Failed to resize window:", error);
-        } finally {
-          if (resizeTimerRef.current) {
-            clearTimeout(resizeTimerRef.current);
-            resizeTimerRef.current = null;
-          }
-        }
-      }, 150);
-
-      // store numeric id
-      resizeTimerRef.current = typeof timer === "number" ? timer : (timer as unknown as number);
-    } catch (error) {
-      console.error("Failed to schedule window resize:", error);
+    if (!expanded && isAnyPopoverOpen()) {
+      return;
     }
-  }, []);
 
+    const newHeight = expanded ? 600 : 54;
+
+    // Skip if the same height was requested recently
+    if (globalLastRequestedHeight === newHeight) {
+      return;
+    }
+
+    // Debounce multiple quick calls
+    if (globalResizeTimer) {
+      clearTimeout(globalResizeTimer);
+      globalResizeTimer = null;
+    }
+
+    // Use a short debounce to avoid rapid toggling when responses stream
+    globalResizeTimer = setTimeout(async () => {
+      try {
+        // Double check right before shrinking: if any popover is open, abort shrinking
+        if (newHeight === 54 && isAnyPopoverOpen()) {
+          return;
+        }
+        await invoke("set_window_height", {
+          window,
+          height: newHeight,
+        });
+        globalLastRequestedHeight = newHeight;
+      } catch (error) {
+        console.error("Failed to resize window:", error);
+      } finally {
+        globalResizeTimer = null;
+      }
+    }, 120);
+  } catch (error) {
+    console.error("Failed to schedule window resize:", error);
+  }
+};
+
+export const useWindowResize = () => {
   // Setup drag handling and popover monitoring
   useEffect(() => {
     let isDragging = false;

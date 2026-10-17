@@ -8,7 +8,7 @@
 use base64::Engine;
 use serde::Serialize;
 use std::io::Cursor;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -33,6 +33,8 @@ pub struct SystemAudioState {
     written_samples: AtomicUsize,
     /// Whether the daemon is currently recording.
     recording: AtomicBool,
+    /// Epoch millisecond of the most recent audio sample that exceeded noise threshold.
+    last_sound_epoch_ms: AtomicU64,
     /// Join handle for the capture thread (macOS only).
     #[allow(dead_code)]
     capture_handle: Mutex<Option<thread::JoinHandle<()>>>,
@@ -59,6 +61,7 @@ impl SystemAudioState {
             logical_len: Mutex::new(logical_len),
             written_samples: AtomicUsize::new(0),
             recording: AtomicBool::new(false),
+            last_sound_epoch_ms: AtomicU64::new(0),
             capture_handle: Mutex::new(None),
             control: tauri::async_runtime::Mutex::new(()),
         }
@@ -113,6 +116,14 @@ impl SystemAudioState {
         if samples.is_empty() {
             return;
         }
+
+        // Non-blocking noise floor check to mark sound activity timestamp without locks
+        if samples.iter().any(|&s| s.abs() > 0.012) {
+            if let Ok(duration) = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+                self.last_sound_epoch_ms.store(duration.as_millis() as u64, Ordering::Relaxed);
+            }
+        }
+
         if let Ok(mut ring) = self.ring.try_lock() {
             let (buf, idx) = &mut *ring;
             let cap = self.capacity;
@@ -560,11 +571,12 @@ pub async fn system_audio_status(
     let current_seconds = (current_samples as f32) / (OUTPUT_SAMPLE_RATE as f32 * OUTPUT_CHANNELS as f32);
 
     let is_audio_active = if state.is_recording() && current_samples > 0 {
-        if let Ok(samples) = state.recent_samples(Some(2)) {
-            silence_ratio(&samples) < 0.90
-        } else {
-            false
-        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let last_sound = state.last_sound_epoch_ms.load(Ordering::Relaxed);
+        now_ms.saturating_sub(last_sound) < 1500
     } else {
         false
     };

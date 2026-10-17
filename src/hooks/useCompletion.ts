@@ -659,13 +659,15 @@ export const useCompletion = () => {
         const previousResponse = latestStateRef.current.response;
         const isAutoAnswer = displayPrompt.startsWith("Auto-answer:");
 
-        setState((prev) => ({
-          ...prev,
-          input: displayPrompt,
-          isLoading: true,
-          error: null,
-          response: isAutoAnswer ? prev.response : "",
-        }));
+        if (!isAutoAnswer) {
+          setState((prev) => ({
+            ...prev,
+            input: displayPrompt,
+            isLoading: true,
+            error: null,
+            response: "",
+          }));
+        }
 
         let hasReceivedChunk = false;
 
@@ -683,25 +685,40 @@ export const useCompletion = () => {
         })) {
           if (currentRequestIdRef.current !== requestId || signal.aborted) return;
           fullResponse += chunk;
-          if (!hasReceivedChunk) {
-            hasReceivedChunk = true;
-            setState((prev) => ({ ...prev, response: chunk }));
-          } else {
-            setState((prev) => ({ ...prev, response: prev.response + chunk }));
+          if (!isAutoAnswer) {
+            if (!hasReceivedChunk) {
+              hasReceivedChunk = true;
+              setState((prev) => ({ ...prev, response: chunk }));
+            } else {
+              setState((prev) => ({ ...prev, response: prev.response + chunk }));
+            }
           }
         }
 
         if (currentRequestIdRef.current !== requestId || signal.aborted) return;
         if (discardIf?.(splitFollowUps(fullResponse).answer)) {
+          // Model declined with "No answer needed." - quietly exit in background without flashing window
+          console.info("[auto-answer] Model declined with 'No answer needed.'");
+          if (!isAutoAnswer) {
+            setState((prev) => ({
+              ...prev,
+              isLoading: false,
+              input: "",
+              response: previousResponse,
+            }));
+          }
+          return;
+        }
+
+        if (isAutoAnswer) {
           setState((prev) => ({
             ...prev,
             isLoading: false,
-            input: prev.input.startsWith("Auto-answer:") ? "" : prev.input,
-            response: prev.input.startsWith("Auto-answer:") ? previousResponse : prev.response,
+            response: fullResponse,
           }));
-          return;
+        } else {
+          setState((prev) => ({ ...prev, isLoading: false }));
         }
-        setState((prev) => ({ ...prev, isLoading: false }));
         setTimeout(() => inputRef.current?.focus(), 100);
 
         if (fullResponse) {
@@ -710,15 +727,21 @@ export const useCompletion = () => {
         }
       } catch (e: any) {
         if (currentRequestIdRef.current === requestId && !signal.aborted) {
-          setState((prev) => ({
-            ...prev,
-            error: e.message || "An error occurred",
-            response: displayPrompt.startsWith("Auto-answer:") ? latestStateRef.current.response : prev.response,
-          }));
+          if (!displayPrompt.startsWith("Auto-answer:")) {
+            setState((prev) => ({
+              ...prev,
+              error: e.message || "An error occurred",
+              response: prev.response,
+            }));
+          } else {
+            console.warn("[auto-answer] Error during evaluation:", e);
+          }
         }
       } finally {
         if (currentRequestIdRef.current === requestId && !signal.aborted) {
-          setState((prev) => ({ ...prev, isLoading: false }));
+          if (!displayPrompt.startsWith("Auto-answer:")) {
+            setState((prev) => ({ ...prev, isLoading: false }));
+          }
         }
       }
     },
@@ -1052,8 +1075,7 @@ export const useCompletion = () => {
 
     const displayPrompt = `Auto-answer: ${question}`;
     const detectedAt = Date.now();
-    // Open the panel right away; retain previous response so it doesn't flash-blank or drop
-    setState((prev) => ({ ...prev, input: displayPrompt, isLoading: true, error: null, response: prev.response }));
+    // Do not set isLoading = true on UI state yet to prevent opening and flash-closing if discarded
 
     const timed = async <T,>(work: Promise<T>) => {
       const started = performance.now();
@@ -1084,11 +1106,7 @@ export const useCompletion = () => {
       transcriptMs = audioResult.ms;
       screenshot = screenshotResult;
     } catch (error) {
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        error: error instanceof Error ? error.message : String(error),
-      }));
+      console.warn("[auto-answer] Screenshot/audio capture failed:", error);
       return;
     }
 
@@ -1149,11 +1167,11 @@ export const useCompletion = () => {
         if (cancelled) fn();
         else unlisteners.push(fn);
       });
-    // Only the other participants' audio: the user's own questions aren't answered.
+    // Listen for questions from both meeting system audio and mic (for testing or direct speaking)
     subscribe<{ source: string; text: string; endMs: number; speaker?: string }>(
       "live-transcript-segment",
       (segment) => {
-        if (segment.source !== "system") return;
+        if (segment.source !== "system" && segment.source !== "mic") return;
         // Compare people by the name the user gave them, so two voice labels
         // named the same (one person split in two) count as one speaker.
         const speaker = segment.speaker ? speakerDisplayName(segment.speaker) : undefined;
@@ -1161,7 +1179,7 @@ export const useCompletion = () => {
       }
     );
     subscribe<{ source: string }>("live-transcript-partial", (partial) => {
-      if (partial.source === "system") detector.speaking();
+      if (partial.source === "system" || partial.source === "mic") detector.speaking();
     });
     return () => {
       cancelled = true;
